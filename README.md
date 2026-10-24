@@ -17,8 +17,9 @@ nextbsd-xlibre      the XLibre server, drivers, input stack, xkb, tools   <- thi
 ```
 
 So far it builds the server's support libraries and the XKB keymap data and
-compiler (nextbsd/nextbsd-xlibre#1). The server, its input and video drivers,
-the input stack and the tools follow. No fonts are built: the server has
+compiler (nextbsd/nextbsd-xlibre#1), and the input stack: libudev-devd,
+libevdev, mtdev and libinput with its quirks (nextbsd/nextbsd-xlibre#2). The
+server, its input and video drivers and the tools follow. No fonts are built: the server has
 built-in fonts.
 
 ## Rules
@@ -44,7 +45,8 @@ built-in fonts.
    artifact), never `nextbsd-userland`. Build tools come from the toolchain
    image and never ship.
 6. **pkgconf, never freedesktop's GPL pkg-config.** No D-Bus, Avahi, udev or
-   Wayland.
+   Wayland. (`libudev-devd` provides the libudev API on NextBSD's devfs and
+   sysctl; it is not udev, and no udev rules ship.)
 
 ## Layout
 
@@ -130,6 +132,10 @@ the X client libraries.
 | `libxcvt` | 0.1.3 | meson | `libxcvt.so.0`, `/usr/X11/bin/cvt` | nextbsd/nextbsd-xlibre#1 |
 | `xkeyboard-config` | 2.48 | meson | the XKB database in `/usr/X11/share/xkeyboard-config-2`, with `/usr/X11/share/X11/xkb` linking to it; `xkeyboard-config.pc` (no NLS, no man page) | nextbsd/nextbsd-xlibre#1 |
 | `xkbcomp` | 1.5.0 | meson | `/usr/X11/bin/xkbcomp`, `xkbcomp.pc` | nextbsd/nextbsd-xlibre#1 |
+| `libudev-devd` | 0.7.0 | meson | `libudev.so.0`, `libudev.h`, `libudev.pc` (unmodified; see [input](#input-stack)) | nextbsd/nextbsd-xlibre#2 |
+| `libevdev` | 1.14.0 | meson | `libevdev.so.2`, `include/libevdev-1.0/libevdev/`, the `libevdev-tweak-device`, `mouse-dpi-tool` and `touchpad-edge-detector` tools | nextbsd/nextbsd-xlibre#2 |
+| `mtdev` | 1.1.7 | autotools | `libmtdev.so.1`, `mtdev.h`, `mtdev-test` | nextbsd/nextbsd-xlibre#2 |
+| `libinput` | 1.32.0 | meson | `libinput.so.10`, `libinput.h`, the `libinput` tool and its helpers in `/usr/X11/libexec/libinput`, the quirks database in `/usr/X11/share/libinput` | nextbsd/nextbsd-xlibre#2 |
 
 Licences are per component; see `NOTICE.md`. The top-level `LICENSE` (BSD-2)
 covers only this repo's harness.
@@ -141,6 +147,23 @@ covers only this repo's harness.
 | Keymap database | `/usr/X11/share/xkeyboard-config-2` (rules, symbols, keycodes, types, compat, geometry) |
 | Legacy XKB root | `/usr/X11/share/X11/xkb`, a link to the above. `nextbsd-xlibs`' libxkbcommon (`-Dxkb-config-root`) and `xkbcomp` (`-Dxkb-config-root`) both use this path, and the server will too |
 | Compiler | `/usr/X11/bin/xkbcomp` |
+
+### Input stack
+
+libinput reads the kernel's evdev(4) nodes (`/dev/input/event*`) and finds
+them through `libudev-devd`, which implements the libudev API on NextBSD's
+devfs, sysctl and devinfo. X uses it through `xf86-input-libinput` (a later
+step), and the Mouse settings set libinput's properties.
+
+| What | Choice |
+|---|---|
+| `libudev-devd` | 0.7.0, unmodified (E23 D10); GPL code off. Devices are enumerated when X starts. Its hotplug monitor listens on devd's socket, and NextBSD has no devd, so a device that appears later is not seen until X restarts. Hotplug through IOKit is later work (nextbsd/nextbsd#482) |
+| `libinput` options | mtdev on; libwacom, Lua plugins, `debug-gui`, tests, docs and zsh completion off |
+| epoll | `epoll-shim` from this repo (`-Depoll-dir` points into the sysroot) |
+| Quirks | `/usr/X11/share/libinput/*.quirks`; the local override file is `/usr/X11/etc/libinput/local-overrides.quirks` (not shipped) |
+| udev rules and callouts | removed from the install (as FreeBSD's port does): no udevd runs them |
+| `linux/input.h` | not shipped. `libevdev` and `libinput` build with the copies in their tarballs; `mtdev` builds with a one-line build-only header that includes the base's `<dev/evdev/input.h>` |
+| `kern.evdev.rcpt_mask` | which kernel drivers deliver to evdev. Set in the image by `nextbsd-overlays` (`/etc/sysctl.conf`, applied by `launchctl` at boot), not here |
 
 ### libepoxy and Mesa
 

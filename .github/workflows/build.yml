@@ -4,7 +4,8 @@ name: Build NextBSD xlibre (the X server stack)
 # the x86_64 runner, inside the per-arch nextbsd-kernel-toolchain container,
 # from the pinned tarballs in sources.lock. So far: the server-support
 # libraries (epoll-shim, libepoxy, libxcvt) and the XKB data and compiler
-# (xkeyboard-config, xkbcomp), nextbsd-xlibre#1. The sysroot is compat's
+# (xkeyboard-config, xkbcomp), nextbsd-xlibre#1, and the input stack
+# (libudev-devd, libevdev, mtdev, libinput), nextbsd-xlibre#2. The sysroot is compat's
 # `continuous` base with nextbsd-xlibs' `continuous` artifact (the X client
 # libraries, pixman, libxkbfile) on top.
 # Same shape as nextbsd-xlibs (wiki: Source-Repo-Conventions).

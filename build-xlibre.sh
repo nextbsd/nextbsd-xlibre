@@ -5,10 +5,10 @@
 #
 # Builds the XLibre X server's stack NextBSD ships in base (E23, plan step 9
 # onwards) for ONE architecture, from pinned upstream release tarballs, into
-# the /usr/X11 prefix with upstream sonames. This first part is the server's
-# support libraries (epoll-shim, libepoxy, libxcvt) and the XKB keymap data
-# and compiler (xkeyboard-config, xkbcomp); the server, its drivers and the
-# input stack follow.
+# the /usr/X11 prefix with upstream sonames. So far: the server's support
+# libraries (epoll-shim, libepoxy, libxcvt), the XKB keymap data and compiler
+# (xkeyboard-config, xkbcomp) and the input stack (libudev-devd, libevdev,
+# mtdev, libinput); the server, its drivers and the tools follow.
 #
 # For each component, in COMPONENTS order:
 #   1. fetch:   download the tarball named in sources.lock, refuse it unless
@@ -137,6 +137,17 @@ not_needed() {
         fi
     done
     note "DT_NEEDED ok: $(basename "$obj") links none of: $*"
+}
+
+# no_build_rpath <file>: a staged object has no RPATH/RUNPATH naming the build
+# host (this repo, the sysroot); the run-time linker finds /usr/X11/lib through
+# ldconfig, not through paths baked in at build time.
+no_build_rpath() {
+    local obj="$1"
+    if "$CROSS_BINDIR/llvm-readelf" -d "$obj" | grep -E '\((RPATH|RUNPATH)\)' | grep -F -e "$ROOT" -e "$SYSROOT"; then
+        fail "$(basename "$obj") has an RPATH/RUNPATH naming a build-host path"
+    fi
+    note "no build-host RPATH: $(basename "$obj")"
 }
 
 # fetch <name>: download (cached in .build/dl), verify and unpack the pinned
@@ -497,6 +508,144 @@ build_xkbcomp() {
 }
 
 # =============================================================================
+# The input stack (nextbsd-xlibre#2, E23 D10): libinput, which the server's
+# xf86-input-libinput driver uses and whose properties the Mouse settings set,
+# and what it needs: a libudev (libudev-devd), libevdev and mtdev.
+#
+# The kernel's evdev(4) nodes (/dev/input/event*) carry the events. Which
+# drivers deliver to them is the kern.evdev.rcpt_mask policy, set in the image
+# by nextbsd-overlays (/etc/sysctl.conf), not here.
+# =============================================================================
+
+# libudev-devd 0.7.0 — the libudev API on NextBSD's devfs, sysctl and devinfo:
+# libinput enumerates input devices through it. Unmodified (E23 D10). meson.
+#
+# It finds /dev/input/event*, /dev/kbdmux*, /dev/sysmouse and the rest once,
+# when the caller enumerates (X start-up). Its udev_monitor (hotplug) listens
+# on devd's socket, and NextBSD has no devd, so devices that appear later are
+# not seen: hotplug through IOKit is later work (nextbsd/nextbsd#482). The GPL
+# code (enable-gpl) stays off. Upstream's default is werror=true; clang 19
+# adds warnings 0.7.0 predates, so -Werror is off (as FreeBSD's port does).
+# Links the base's libdevinfo and libprocstat.
+build_libudev_devd() {
+    comp "libudev-devd [meson cross]"
+    fresh_dirs libudev-devd
+    fetch libudev-devd
+    meson_build -Dwerror=false -Denable-gpl=false
+    stage libudev-devd
+    test -f "$DESTDIR$X_PREFIX/include/libudev.h" || fail "libudev.h not staged"
+    so_check libudev.so.0
+    lib_needs libudev.so.0 libdevinfo.so libprocstat.so
+    no_build_rpath "$DESTDIR$X_PREFIX/lib/libudev.so.0"
+    # libudev-devd's .pc claims udev 243's API level; libinput asks for none.
+    pc_check libudev 243
+}
+
+# libevdev — the evdev device wrapper libinput (and later xf86-input-evdev)
+# uses. meson; python3 generates the event-name tables on the build host. The
+# kernel interface comes from the copy of NextBSD's dev/evdev/input.h the
+# tarball carries (include/linux/freebsd/, picked by host_machine.system()).
+# The tools (libevdev-tweak-device, mouse-dpi-tool, touchpad-edge-detector)
+# are built; the tests (they need check) and the doxygen docs are not.
+build_libevdev() {
+    comp "libevdev [meson cross]"
+    fresh_dirs libevdev
+    fetch libevdev
+    meson_build -Dtests=disabled -Ddocumentation=disabled -Dtools=enabled
+    stage libevdev
+    local x="$DESTDIR$X_PREFIX" t
+    for h in libevdev libevdev-uinput; do
+        test -f "$x/include/libevdev-1.0/libevdev/$h.h" || fail "libevdev/$h.h not staged"
+    done
+    for t in libevdev-tweak-device mouse-dpi-tool touchpad-edge-detector; do
+        test -x "$x/bin/$t" || fail "$t not staged"
+    done
+    so_check libevdev.so.2
+    no_build_rpath "$x/lib/libevdev.so.2"
+    pc_check libevdev "$VERSION"
+}
+
+# mtdev — turns multitouch protocol A devices into protocol B slots for
+# libinput. autotools.
+#
+# mtdev.h includes <linux/input.h>, which NextBSD's base doesn't have (FreeBSD
+# gets it from the devel/evdev-proto port, which is not used here). For the
+# library's own build, a one-line linux/input.h that includes the base's
+# <dev/evdev/input.h> (the same kernel ABI) goes on the include path. It lives
+# in the build directory only; nothing ships it, and mtdev.h is installed
+# unchanged. libinput brings its own linux/input.h for its include of mtdev.h.
+build_mtdev() {
+    comp "mtdev [autotools cross]"
+    fresh_dirs mtdev
+    fetch mtdev
+    local compat="$BUILD/evdev-compat-$T"
+    rm -rf "$compat"
+    mkdir -p "$compat/linux"
+    printf '%s\n' '/* NextBSD build-only shim: the base kernel evdev ABI. */' \
+        '#include <dev/evdev/input.h>' > "$compat/linux/input.h"
+    autotools_build CPPFLAGS="-I$compat"
+    stage mtdev
+    test -f "$DESTDIR$X_PREFIX/include/mtdev.h" || fail "mtdev.h not staged"
+    test -x "$DESTDIR$X_PREFIX/bin/mtdev-test" || fail "mtdev-test not staged"
+    so_check libmtdev.so.1
+    no_build_rpath "$DESTDIR$X_PREFIX/lib/libmtdev.so.1"
+    pc_check mtdev "$VERSION"
+}
+
+# libinput — the input library behind xf86-input-libinput. meson.
+#
+# Options: mtdev on; libwacom off (no libwacom in base, E23 D10); Lua plugins
+# off, and so no plugin autoloading; no debug-gui (GTK), tests or docs; no zsh
+# completion (it would go in /usr/X11/share/zsh, outside zsh's fpath).
+#
+# epoll comes from epoll-shim (built above). libinput's meson looks for it
+# under -Depoll-dir (default: its own prefix, i.e. the build host's
+# /usr/X11), so that points into the sysroot.
+#
+# Installed: libinput.so.10 and libinput.h; the libinput tool in bin and its
+# helpers in libexec/libinput (the Python ones need a python3 at run time, as
+# upstream); the quirks database in /usr/X11/share/libinput (the local
+# override file is /usr/X11/etc/libinput/local-overrides.quirks, not shipped).
+# The udev rules and callouts in /usr/X11/lib/udev are removed, as FreeBSD's
+# port does: NextBSD has no udevd to run them.
+build_libinput() {
+    comp "libinput [meson cross]"
+    fresh_dirs libinput
+    fetch libinput
+    meson_build -Dlibwacom=false -Dmtdev=true -Dlua-plugins=disabled \
+        -Dautoload-plugins=false -Ddebug-gui=false -Dtests=false \
+        -Dinstall-tests=false -Ddocumentation=false -Dzshcompletiondir=no \
+        -Depoll-dir="$SYSROOT$X_PREFIX"
+    rm -rf "$COMP_ROOT$X_PREFIX/lib/udev"
+    stage libinput
+    local x="$DESTDIR$X_PREFIX" q n t
+    test -f "$x/include/libinput.h" || fail "libinput.h not staged"
+    so_check libinput.so.10
+    lib_needs libinput.so.10 libudev.so.0 libevdev.so.2 libmtdev.so.1 libepoll-shim.so.0
+    not_needed "$x/lib/libinput.so.10" 'libwacom' 'liblua' 'libgtk' 'libglib'
+    no_build_rpath "$x/lib/libinput.so.10"
+    test -x "$x/bin/libinput" || fail "the libinput tool is not staged"
+    no_build_rpath "$x/bin/libinput"
+    for t in libinput-list-devices libinput-debug-events libinput-quirks libinput-record; do
+        test -x "$x/libexec/libinput/$t" || fail "libexec/libinput/$t not staged"
+        no_build_rpath "$x/libexec/libinput/$t"
+    done
+    # Every quirks file in the tarball is installed, and libinput was built
+    # to read them from there.
+    n=0
+    for q in "$SRC_DIR"/quirks/*.quirks; do
+        test -f "$x/share/libinput/$(basename "$q")" || fail "quirks $(basename "$q") not staged"
+        n=$((n + 1))
+    done
+    [ "$n" -gt 0 ] || fail "no quirks files in the libinput tarball"
+    note "$n quirks files in $X_PREFIX/share/libinput"
+    grep -q -a -F "$X_PREFIX/share/libinput" "$x/lib/libinput.so.10" \
+        || fail "libinput.so.10 does not name $X_PREFIX/share/libinput"
+    [ ! -e "$x/lib/udev" ] || fail "$X_PREFIX/lib/udev staged"
+    pc_check libinput "$VERSION"
+}
+
+# =============================================================================
 # driver
 # =============================================================================
 # Add a component: pin it in sources.lock, write build_<name>() above (hyphens
@@ -510,6 +659,10 @@ COMPONENTS="
     libxcvt
     xkeyboard-config
     xkbcomp
+    libudev-devd
+    libevdev
+    mtdev
+    libinput
 "
 
 if [ $# -gt 0 ]; then

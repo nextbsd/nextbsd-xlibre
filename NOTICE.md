@@ -22,6 +22,10 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `libxcvt` | X.Org, `xorg/lib/libxcvt` | 0.1.3 | MIT/X11 (`COPYING`) |
 | `xkeyboard-config` | freedesktop.org, `xkeyboard-config/xkeyboard-config` | 2.48 | MIT/X11-style, per file (`COPYING`) |
 | `xkbcomp` | X.Org, `xorg/app/xkbcomp` | 1.5.0 | HPND / MIT-style (`COPYING`) |
+| `libudev-devd` | Vladimir Kondratyev, `wulf7/libudev-devd` | 0.7.0 | BSD-2-Clause (in each file; no `COPYING`). The optional GPL code (`utils-gpl.c`) is not built |
+| `libevdev` | freedesktop.org, `libevdev/libevdev` | 1.14.0 | MIT (`COPYING`). The Linux UAPI headers it carries in `include/linux/linux` (GPL-2.0 WITH Linux-syscall-note) are build input only and not installed |
+| `mtdev` | Henrik Rydberg, bitmath.org | 1.1.7 | MIT (`COPYING`) |
+| `libinput` | freedesktop.org, `libinput/libinput` | 1.32.0 | MIT (`COPYING`); the quirks data is under the same licence. The Linux UAPI headers it carries in `include/linux/linux` are build input only and not installed |
 
 Build input that is staged into the sysroot only and is not part of the
 artifact:
