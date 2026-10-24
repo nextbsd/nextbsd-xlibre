@@ -1,0 +1,71 @@
+Description: config/udev: kbdmux and console-attached keyboards on NextBSD.
+ Two FreeBSD-specific changes to the udev config backend (fed by
+ libudev-devd):
+  - a kbdmux(4) keyboard gets the "device" option only if it can be opened;
+    if it is already attached to the console the open fails, and passing the
+    device would turn on xf86-input-keyboard's console-keyboard logic for a
+    second device;
+  - keyboards and pointers get the kbd and mouse drivers when the kernel has
+    no evdev(4) (feature_present("evdev_support") is false), since then no
+    InputClass matches them and no driver attaches. vbox pointers get
+    vboxmouse.
+ Unchanged from FreeBSD's port; it applies to 25.2.2 as it is.
+Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-config_udev.c
+ (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-config_udev.c)
+Forwarded: not yet; a candidate for X11Libre under #ifdef __FreeBSD__
+ (config/udev.c on FreeBSD always means libudev-devd)
+---
+diff --git a/config/udev.c b/config/udev.c
+index 5dc7888..fc8e564 100644
+--- a/config/udev.c
++++ b/config/udev.c
+@@ -27,6 +27,7 @@
+ 
+ #include <libudev.h>
+ #include <ctype.h>
++#include <fcntl.h>
+ #include <unistd.h>
+ 
+ #include "dix/settings_priv.h"
+@@ -194,7 +195,21 @@ device_added(struct udev_device *udev_device)
+     char buf[128];
+     input_options = input_option_new(input_options, "name", name);
+     input_options = input_option_new(input_options, "path", path);
+-    input_options = input_option_new(input_options, "device", path);
++    if(strstr(path, "kbdmux") != NULL) {
++        /*
++         * Don't pass "device" option if the keyboard is already attached
++         * to the console (ie. open() fails). This would activate a special
++         * logic in xf86-input-keyboard. Prevent any other attached to console
++         * keyboards being processed. There can be only one such device.
++         */
++        int fd = open(path, O_RDONLY);
++        if (fd > -1) {
++            close(fd);
++            input_options = input_option_new(input_options, "device", path);
++        }
++    }
++    else
++        input_options = input_option_new(input_options, "device", path);
+     sprintf(buf, "%u", major(devnum));
+     input_options = input_option_new(input_options, "major", buf);
+     sprintf(buf, "%u", minor(devnum));
+@@ -278,6 +293,18 @@ device_added(struct udev_device *udev_device)
+         }
+     }
+ 
++    if (attrs.flags & (ATTR_KEY | ATTR_KEYBOARD)) {
++        if (!feature_present("evdev_support"))
++            input_options = input_option_new(input_options, "driver", "kbd");
++    } else if (attrs.flags & ATTR_POINTER) {
++        if (strstr(path, "vbox"))
++            input_options = input_option_new(input_options, "driver", "vboxmouse");
++        else {
++            if (!feature_present("evdev_support"))
++                input_options = input_option_new(input_options, "driver", "mouse");
++        }
++    }
++
+     input_options = input_option_new(input_options, "config_info", config_info);
+ 
+     /* Default setting needed for non-seat0 seats */

@@ -1,0 +1,23 @@
+# patches/xlibre-xserver/series: applied in order with patch -p1.
+#
+# FreeBSD's port (x11-servers/xlibre-server/files, ports commit 956f979f48)
+# carries 8 patches for the server (E23 D11). 4 are needed on 25.2.2 and
+# carried here, each with its Origin:
+0001-config-udev-kbdmux-and-no-evdev-drivers.patch
+0002-bsd_init-raw-console-keyboard-while-X-owns-the-VT.patch
+0003-os-support-build-SlowBcopy-on-BSD.patch
+0004-meson-epoll-shim-include-path-from-its-dependency.patch
+#
+# The other 4 are not carried:
+#   patch-hw_xfree86_os-support_shared_seatd-libseat.c
+#       already in 25.2.2 (the XSERVER_PLATFORM_BUS guards); seatd is off
+#       here anyway.
+#   patch-hw_xfree86_xorg-wrapper.c, patch-hw_xfree86_meson.build
+#       both touch the suid wrapper (Xorg.wrap), which is not built
+#       (-Dsuid_wrapper=false; X is started as root by launchd/loginwindow).
+#   patch-os-utils.c
+#       CLOCK_MONOTONIC_COARSE -> CLOCK_MONOTONIC_FAST. NextBSD's
+#       <sys/_clock_id.h> defines CLOCK_MONOTONIC_COARSE as
+#       CLOCK_MONOTONIC_FAST, so upstream's code already uses the same clock.
+# The port's post-patch sed on config/meson.build (lines 31-54) targets
+# 25.1.x; that file has 30 lines in 25.2.2 and needs nothing.

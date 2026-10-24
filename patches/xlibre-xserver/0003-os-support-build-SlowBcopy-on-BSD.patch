@@ -1,0 +1,22 @@
+Description: os-support: build SlowBcopy.c on the BSDs.
+ xf86SlowBcopy() is exported in the SDK (xf86_OSproc.h) and used by
+ compiler.h's slowbcopy_tobus()/slowbcopy_frombus(), but 25.2.2 builds
+ misc/SlowBcopy.c only for Linux and the stub OS, so a driver that uses it
+ fails to load on FreeBSD with an undefined symbol.
+ Unchanged from FreeBSD's port; it applies to 25.2.2 as it is.
+Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_meson.build
+ (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_meson.build)
+Forwarded: not yet; a candidate for X11Libre (missing exported symbol on BSD)
+---
+diff --git a/hw/xfree86/os-support/meson.build b/hw/xfree86/os-support/meson.build
+index 631ae64..df0dba9 100644
+--- a/hw/xfree86/os-support/meson.build
++++ b/hw/xfree86/os-support/meson.build
+@@ -92,6 +92,7 @@ elif host_machine.system().endswith('bsd') or host_machine.system() == 'dragonfl
+         'bsd/bsd_bell.c',
+         'bsd/bsd_init.c',
+         'shared/drm_platform.c',
++        'misc/SlowBcopy.c',
+ 	'shared/pm_noop.c'
+     ]
+ 
