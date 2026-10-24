@@ -1,0 +1,122 @@
+name: Build NextBSD xlibre (the X server stack)
+
+# Cross-builds the XLibre server's stack into /usr/X11 for amd64 and arm64 on
+# the x86_64 runner, inside the per-arch nextbsd-kernel-toolchain container,
+# from the pinned tarballs in sources.lock. So far: the server-support
+# libraries (epoll-shim, libepoxy, libxcvt) and the XKB data and compiler
+# (xkeyboard-config, xkbcomp), nextbsd-xlibre#1. The sysroot is compat's
+# `continuous` base with nextbsd-xlibs' `continuous` artifact (the X client
+# libraries, pixman, libxkbfile) on top.
+# Same shape as nextbsd-xlibs (wiki: Source-Repo-Conventions).
+#
+# Publishes nextbsd-xlibre-<arch>.tar.gz to this repo's `continuous` release on
+# pushes to main and on manual runs from main; pull requests build only.
+#
+# Nothing is dispatched from here and nothing dispatches here: this repo is run
+# by hand after nextbsd-xlibs (and nextbsd-mesa), and nextbsd-pkg after it (E23
+# plan; the rebuild-chain policy: a merge never rebuilds downstream repos).
+
+on:
+  push:
+    branches: [main]
+    paths: ['build-xlibre.sh', 'sources.lock', 'patches/**', 'cross/**', '.github/workflows/build.yml']
+  pull_request:
+    paths: ['build-xlibre.sh', 'sources.lock', 'patches/**', 'cross/**', '.github/workflows/build.yml']
+  workflow_dispatch:
+    inputs:
+      fbsd_sha:
+        description: 'Pinned FreeBSD SHA for the toolchain image tag (blank = latest)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: xlibre (${{ matrix.arch }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, target_arch: amd64 }
+          - { arch: arm64, target_arch: aarch64 }
+    container:
+      # Per-arch toolchain image: the pinned llvmorg-19.1.7 clang, lld and LLVM
+      # binutils at $CROSS_BINDIR (set by the image), plus meson 1.12.1, ninja,
+      # cmake, pkgconf, autotools, X.Org util-macros, python3, perl and bison
+      # (nextbsd-toolchain#13). Nothing is apt-installed here.
+      image: ghcr.io/nextbsd/nextbsd-kernel-toolchain:${{ matrix.arch }}-${{ inputs.fbsd_sha && format('fbsd-{0}', inputs.fbsd_sha) || 'latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stage the cross sysroot, in the order the repos build:
+      #   1. compat's base: libc, libthr, libz and friends, headers and
+      #      /usr/libdata/pkgconfig;
+      #   2. nextbsd-xlibs: libdrm, the X client libraries, pixman, libxkbfile
+      #      and the font stack in /usr/X11, with their headers and .pc files.
+      # Both public reads, so the built-in token is enough and fork PRs work.
+      # build-xlibre.sh installs each component into this sysroot's /usr/X11
+      # as it goes.
+      - name: Stage sysroot from compat and xlibs continuous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/sysroot"
+          gh release download continuous \
+            --repo nextbsd/nextbsd-freebsd-compat \
+            --pattern "nextbsd-base-${{ matrix.arch }}.tar.gz" \
+            --output /tmp/base.tar.gz --clobber
+          gh release download continuous \
+            --repo nextbsd/nextbsd-xlibs \
+            --pattern "nextbsd-xlibs-${{ matrix.arch }}.tar.gz" \
+            --output /tmp/xlibs.tar.gz --clobber
+          for t in base xlibs; do
+            tar -C "$GITHUB_WORKSPACE/sysroot" -xzf "/tmp/$t.tar.gz"
+          done
+
+      - name: Build xlibre into /stage
+        env:
+          T: ${{ matrix.arch }}
+          TA: ${{ matrix.target_arch }}
+          SYSROOT: ${{ github.workspace }}/sysroot
+          DESTDIR: /stage
+        run: ./build-xlibre.sh
+
+      # Raw tar of /stage rooted at /: everything under /usr/X11, headers, .pc
+      # files and .so links included. Splitting runtime from development files
+      # is nextbsd-pkg's job (E23 D13, NextBSD-xlibre).
+      - name: Pack xlibre artifact
+        run: |
+          tar -C /stage -czf "/tmp/nextbsd-xlibre-${{ matrix.arch }}.tar.gz" .
+          tar -tzvf "/tmp/nextbsd-xlibre-${{ matrix.arch }}.tar.gz" | grep -v '/$' || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nextbsd-xlibre-${{ matrix.arch }}
+          path: /tmp/nextbsd-xlibre-${{ matrix.arch }}.tar.gz
+
+  publish:
+    needs: build
+    # Pushes to main and manual runs from main; never pull requests.
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Gather artifacts
+        run: |
+          mkdir -p out
+          find artifacts -name 'nextbsd-xlibre-*.tar.gz' -exec cp {} out/ \;
+          ls -la out/
+      - name: Publish to continuous release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: continuous
+          name: Continuous xlibre build
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: out/*.tar.gz
+      # That is where this stops: no dispatch to nextbsd-pkg or anything else.
+      # It is run by hand once this build is known good.
