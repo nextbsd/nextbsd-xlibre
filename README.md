@@ -184,7 +184,7 @@ the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
 | XKB | rules from `/usr/X11/share/X11/xkb`, `xkbcomp` from `/usr/X11/bin`; compiled keymaps in `/var/run` (root-only, emptied at boot; the server falls back to `/tmp`) |
 | Fonts | default font path `built-ins` only |
 | Log | `/var/log/Xorg.N.log` |
-| Configuration | read from `/usr/X11/etc/X11` and `/etc/X11` as upstream does; none is shipped here (it belongs in `nextbsd-overlays`). FreeBSD's `20-evdev-kbd.conf` is not needed: the default XKB rules are already `evdev` |
+| Configuration | read from `/usr/X11/etc/X11` and `/etc/X11` as upstream does; none is shipped here (it belongs in `nextbsd-overlays`). Of upstream's `share/X11/xorg.conf.d` snippets only `10-quirks.conf` ships; its NVIDIA ones (Linux `nvidia-drm`, and Debian copies in `etc/`) are removed, as NVIDIA's configuration belongs with the NVIDIA bundle (D15). FreeBSD's `20-evdev-kbd.conf` is not needed: the default XKB rules are already `evdev` |
 | SHA-1 | the base's `libmd` |
 
 `patches/xlibre-xserver/` carries 4 of the 8 server patches in FreeBSD's port

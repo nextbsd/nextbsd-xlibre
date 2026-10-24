@@ -752,6 +752,14 @@ build_xlibre_xserver() {
         -Dlog_dir=/var/log -Ddefault_font_path=built-ins \
         -Dxkb_dir="$X_PREFIX/share/X11/xkb" -Dxkb_bin_dir="$X_PREFIX/bin" \
         -Dxkb_output_dir=/var/run
+    # 25.2.2 installs upstream's NVIDIA OutputClass snippets: 10-nvidia.conf
+    # and 10-nvidia-modules.conf in share/X11/xorg.conf.d (written for Linux
+    # 6.12+'s nvidia-drm, with a ModulePath of /usr/X11/lib/nvidia/xorg) and
+    # Debian copies in etc/X11/xorg.conf.d. They are removed: FreeBSD's port
+    # ships none of them, and where NVIDIA's driver and its configuration live
+    # is the NVIDIA bundle's business (E23 D15). 10-quirks.conf stays.
+    rm -f "$COMP_ROOT$X_PREFIX"/share/X11/xorg.conf.d/10-nvidia*.conf \
+          "$COMP_ROOT$X_PREFIX"/etc/X11/xorg.conf.d/10-nvidia*.conf.debian
     stage xlibre-xserver
     local x="$DESTDIR$X_PREFIX" mods="$DESTDIR$X_PREFIX/lib/xorg/modules/xlibre-25" xorg m s
     xorg="$x/bin/Xorg"
@@ -759,6 +767,11 @@ build_xlibre_xserver() {
     [ ! -u "$xorg" ] || fail "Xorg is set-uid"
     [ ! -e "$x/libexec/Xorg.wrap" ] && [ ! -e "$x/libexec/Xorg" ] || fail "the suid wrapper was built"
     [ "$(readlink "$x/bin/X")" = Xorg ] || fail "$X_PREFIX/bin/X does not link to Xorg"
+    test -f "$x/share/X11/xorg.conf.d/10-quirks.conf" || fail "10-quirks.conf not staged"
+    [ ! -e "$x/etc" ] || fail "$X_PREFIX/etc staged: $(cd "$x/etc" && find . ! -type d)"
+    for s in "$x"/share/X11/xorg.conf.d/*; do
+        [ "$(basename "$s")" = 10-quirks.conf ] || fail "unexpected $(basename "$s") in $X_PREFIX/share/X11/xorg.conf.d"
+    done
     for s in Xvfb Xnest Xephyr Xfbdev Xwayland; do
         [ ! -e "$x/bin/$s" ] || fail "$s staged; only Xorg is built"
     done
