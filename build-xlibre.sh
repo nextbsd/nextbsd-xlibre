@@ -27,7 +27,8 @@
 #
 # Upstream build systems are used as they are, with NextBSD's options; nothing
 # is rewritten as a hand-made makefile. Nothing here uses FreeBSD packages, the
-# ports tree or ports tools, and nothing links against nextbsd-userland: the
+# ports tree or ports tools, and nothing links against nextbsd-userland (Xorg
+# loads liblaunch only at run time, and only with -launchd): the
 # inputs are sources.lock, the NextBSD base (compat) sysroot, and nextbsd-xlibs'
 # (the X client libraries, libdrm, pixman, libxkbfile) and nextbsd-mesa's
 # (libglvnd, Mesa's GL/EGL/GBM) `continuous` artifacts on top.
@@ -66,6 +67,11 @@ XLIBRE_CROSS="$ROOT/cross"
 # $X_PREFIX/lib/pkgconfig whatever the upstream default, so one directory goes
 # on pkgconf's path.
 X_PREFIX=/usr/X11
+
+# The only file this repo installs outside $X_PREFIX: the org.nextbsd.xlibre
+# LaunchAgent (launchd/, nextbsd-xlibre#13), next to the userland's agents.
+LAUNCH_AGENTS_DIR=/System/Library/LaunchAgents
+OUTSIDE_PREFIX="$LAUNCH_AGENTS_DIR/org.nextbsd.xlibre.plist"
 
 case "$T" in
     amd64) CROSS_TRIPLE=x86_64-unknown-freebsd ;;
@@ -284,7 +290,8 @@ base_list() {
 
 # stage <name> [sysroot-only]: tidy and check $COMP_ROOT, then copy it into
 # $SYSROOT (for the components after this one) and $DESTDIR (the artifact).
-#   - everything must be under /usr/X11, and nothing may replace a base file;
+#   - everything must be under /usr/X11, apart from $OUTSIDE_PREFIX, and
+#     nothing may replace a base file;
 #   - libtool .la files and docs are dropped (man pages are kept);
 #   - .pc files from share/pkgconfig and libdata/pkgconfig move to
 #     lib/pkgconfig;
@@ -294,9 +301,17 @@ base_list() {
 # With sysroot-only, the component is build input for later components and is
 # left out of the artifact (khronos-headers).
 stage() {
-    local name="$1" where="${2:-}" x="$COMP_ROOT$X_PREFIX" stray f d clash
+    local name="$1" where="${2:-}" x="$COMP_ROOT$X_PREFIX" stray f d clash allowed=""
     [ -d "$x" ] || fail "$name installed nothing under $X_PREFIX"
-    stray=$(cd "$COMP_ROOT" && find . -mindepth 1 ! -path ./usr ! -path ".$X_PREFIX" ! -path ".$X_PREFIX/*")
+    for f in $OUTSIDE_PREFIX; do
+        allowed="$allowed ! -path .$f"
+        d="$f"
+        while d=$(dirname "$d") && [ "$d" != / ]; do
+            allowed="$allowed ! -path .$d"
+        done
+    done
+    # shellcheck disable=SC2086
+    stray=$(cd "$COMP_ROOT" && find . -mindepth 1 ! -path ./usr ! -path ".$X_PREFIX" ! -path ".$X_PREFIX/*" $allowed)
     [ -z "$stray" ] || fail "$name installed outside $X_PREFIX: $stray"
     find "$x" -name '*.la' -delete
     rm -rf "$x/share/doc"
@@ -763,6 +778,10 @@ build_xlibre_xserver() {
     # is the NVIDIA bundle's business (E23 D15). 10-quirks.conf stays.
     rm -f "$COMP_ROOT$X_PREFIX"/share/X11/xorg.conf.d/10-nvidia*.conf \
           "$COMP_ROOT$X_PREFIX"/etc/X11/xorg.conf.d/10-nvidia*.conf.debian
+    # The on-demand LaunchAgent (nextbsd-xlibre#13): launchd starts Xorg
+    # -launchd (patch 0005) when the first X client connects. Disabled.
+    install -d -m 0755 "$COMP_ROOT$LAUNCH_AGENTS_DIR"
+    install -m 0644 "$ROOT/launchd/org.nextbsd.xlibre.plist" "$COMP_ROOT$LAUNCH_AGENTS_DIR/"
     stage xlibre-xserver
     local x="$DESTDIR$X_PREFIX" mods="$DESTDIR$X_PREFIX/lib/xorg/modules/xlibre-25" xorg m s
     xorg="$x/bin/Xorg"
@@ -794,7 +813,13 @@ build_xlibre_xserver() {
         needed_check "$xorg" "$s"
     done
     not_needed "$xorg" 'libdbus' 'libsystemd' 'libseat' 'libunwind' 'libhal' \
-        'libselinux' 'libaudit' 'libbsd'
+        'libselinux' 'libaudit' 'libbsd' 'liblaunch'
+    # -launchd (patch 0005) is built in; liblaunch is dlopen()ed for it only.
+    for s in -launchd launch_activate_socket liblaunch.so.1; do
+        grep -q -a -F -e "$s" "$xorg" || fail "Xorg has no $s (patch 0005)"
+    done
+    note "Xorg: -launchd built in, liblaunch loaded only at run time"
+    launch_agent_check "$DESTDIR$OUTSIDE_PREFIX"
     no_build_rpath "$xorg"
     # The paths compiled in.
     for s in /var/log "$X_PREFIX/share/X11/xkb" "$X_PREFIX/bin" \
@@ -811,6 +836,41 @@ build_xlibre_xserver() {
     [ "$(PKG_CONFIG_LIBDIR="$SYSROOT$X_PREFIX/lib/pkgconfig" pkgconf --variable=moduledir xorg-server)" = "$X_PREFIX/lib/xorg/modules/xlibre-25" ] \
         || fail "xorg-server.pc: moduledir is not $X_PREFIX/lib/xorg/modules/xlibre-25"
     note "xorg-server.pc: moduledir=$X_PREFIX/lib/xorg/modules/xlibre-25"
+}
+
+# launch_agent_check <plist>: the org.nextbsd.xlibre LaunchAgent parses as a
+# property list (python3's plistlib; there is no plutil on the runner) and
+# keeps the shape nextbsd-xlibre#13 needs: an org.nextbsd label, disabled and
+# Aqua-only as XQuartz's agent is, nothing started at load, a
+# SecureSocketWithKey DISPLAY socket whose name is the one Xorg -launchd
+# collects, a server that is staged, and stdout/stderr kept off the console.
+launch_agent_check() {
+    local p="$1"
+    [ -f "$p" ] || fail "$p was not staged"
+    python3 - "$p" "$DESTDIR" <<'PY' || fail "$(basename "$p") is not the LaunchAgent nextbsd-xlibre#13 describes"
+import os, plistlib, sys
+path, destdir = sys.argv[1], sys.argv[2]
+with open(path, "rb") as f:
+    job = plistlib.load(f)
+def need(cond, why):
+    if not cond:
+        sys.exit(f"FAIL: {os.path.basename(path)}: {why}")
+need(job.get("Label") == "org.nextbsd.xlibre", "Label is not org.nextbsd.xlibre")
+need(job.get("Disabled") is True, "not Disabled")
+need(job.get("LimitLoadToSessionType") == "Aqua", "LimitLoadToSessionType is not Aqua")
+for k in ("RunAtLoad", "KeepAlive", "OnDemand", "StartInterval", "WatchPaths", "QueueDirectories"):
+    need(k not in job, f"has {k}; X must start only when a client connects")
+args = job.get("ProgramArguments", [])
+need(len(args) >= 3 and args[1] == "-launchd", "ProgramArguments is not <server> -launchd <name> ...")
+need(os.access(destdir + args[0], os.X_OK), f"{args[0]} is not staged")
+socks = job.get("Sockets", {})
+need(list(socks) == [args[2]], f"Sockets has no single entry named {args[2]}")
+need(socks[args[2]].get("SecureSocketWithKey") == "DISPLAY", "the socket is not SecureSocketWithKey DISPLAY")
+for k in ("StandardOutPath", "StandardErrorPath"):
+    need(job.get(k) == "/dev/null", f"{k} is not /dev/null")
+need("com.apple" not in open(path).read(), "names com.apple")
+PY
+    note "LaunchAgent ok: $LAUNCH_AGENTS_DIR/$(basename "$p") (disabled, Aqua, socket-activated)"
 }
 
 # =============================================================================

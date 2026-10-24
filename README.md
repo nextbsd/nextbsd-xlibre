@@ -44,10 +44,13 @@ xinit (with startx), xset, setxkbmap, xinput and xrandr
    `/usr/X11/bin`. Nothing goes in `/usr/local`, nothing here ships `/etc`
    (configuration belongs in `nextbsd-overlays`; `/usr/X11/etc` holds only
    xinit's default `xinitrc`, see [tools](#the-tools)), and nothing may replace a
-   file of the base, of `nextbsd-xlibs` or of `nextbsd-mesa`.
+   file of the base, of `nextbsd-xlibs` or of `nextbsd-mesa`. The one file
+   outside `/usr/X11` is the `org.nextbsd.xlibre` LaunchAgent in
+   `/System/Library/LaunchAgents` (see [on-demand start](#on-demand-start)).
 5. **Only the NextBSD base sysroot and the earlier X repos are linked
    against** (compat's `continuous` base, then the `continuous` artifacts of
-   `nextbsd-xlibs` and `nextbsd-mesa`), never `nextbsd-userland`. Build tools come from the toolchain
+   `nextbsd-xlibs` and `nextbsd-mesa`), never `nextbsd-userland` (`Xorg -launchd`
+   loads its liblaunch only at run time). Build tools come from the toolchain
    image and never ship.
 6. **pkgconf, never freedesktop's GPL pkg-config.** No D-Bus, Avahi, udev or
    Wayland. (`libudev-devd` provides the libudev API on NextBSD's devfs and
@@ -64,6 +67,7 @@ cross/meson/<arch>.ini       meson cross files (host_machine system = 'freebsd')
 cross/autotools/<arch>.site  autotools CONFIG_SITE files (cross compiler, pkgconf,
 cross/autotools/common.site    cache answers for checks that would run a program)
 cross/cmake/<arch>.cmake     CMake toolchain files (CMAKE_SYSTEM_NAME FreeBSD)
+launchd/*.plist              the launchd job this repo installs (org.nextbsd.xlibre)
 .github/workflows/build.yml  CI: build both arches, publish `continuous`
 NOTICE.md                    per-component provenance and licence
 ```
@@ -217,9 +221,91 @@ the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
 | `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.2.2 builds it only for Linux |
 | `0004` meson | takes epoll-shim's include path from its dependency (25.2.2 adds the build host's `/usr/X11/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
 
+and one of NextBSD's own:
+
+| Patch | What |
+|---|---|
+| `0005` os | `-launchd <name>`: listen only on the sockets of the launchd job's `Sockets` entry `<name>`, for [on-demand start](#on-demand-start) |
+
 Not carried: the seatd patch (already in 25.2.2), the two suid-wrapper patches
 (no wrapper is built) and `os/utils.c`'s `CLOCK_MONOTONIC_COARSE` → `_FAST`
 (NextBSD's headers already define the one as the other). `series` records why.
+
+### On-demand start
+
+The XQuartz launch model on NextBSD's launchd-842 (nextbsd/nextbsd-xlibre#13;
+E25 plan, "X apps when the WindowServer is primary", option 2): a per-user
+LaunchAgent owns the `DISPLAY` socket, and launchd starts the X server when the
+first X client connects.
+
+- **The job**, `launchd/org.nextbsd.xlibre.plist`, installed as
+  `/System/Library/LaunchAgents/org.nextbsd.xlibre.plist`. Its `Sockets` entry
+  `org.nextbsd.xlibre:0` has `SecureSocketWithKey = DISPLAY`: when the agent is
+  loaded into a user's session, launchctl makes a private directory
+  (`mkdtemp`, mode 0700, owned by the user), binds the socket in it and sets
+  `DISPLAY` to its path for the session's jobs. libxcb, and so libX11, takes
+  a socket path as `DISPLAY`.
+- **The server**, `Xorg -launchd org.nextbsd.xlibre:0 -terminate` (patch
+  `0005`). It collects the socket with `launch_activate_socket()` (liblaunch,
+  nextbsd/nextbsd-userland#447) and adds it with the server's
+  `ListenOnOpenFD()`, as XQuartz does. Because only the user can enter the
+  socket's directory, clients need no xauth cookie on it (a launchd socket
+  anywhere else keeps X authorization). With `-launchd` the server opens no
+  `/tmp/.X11-unix` socket and writes no lock file, so it never clashes with
+  an X server started by a login window. liblaunch is `dlopen()`ed only for
+  `-launchd`: `Xorg` doesn't link it, and an X server started any other way
+  behaves exactly as before.
+- **When it runs:** only while it has clients. No `RunAtLoad` or `KeepAlive`;
+  `-terminate` makes the server exit after its last client, launchd keeps the
+  socket, and the next client starts it again. Its stdout and stderr go to
+  `/dev/null`; Xorg writes its own log (for a user,
+  `~/.local/share/xorg/Xorg.0.log`).
+
+**Per-user, not a system daemon.** NextBSD's launchd has per-user launchd
+instances and LaunchAgents (nextbsd/nextbsd-userland#354; `pam_launchd` puts
+console and SSH logins in the per-user `Background` session), and
+`SecureSocketWithKey` is a per-session mechanism: the socket and the
+`DISPLAY` it exports belong to that user's session. A system LaunchDaemon
+can't do this: PID 1 loads `/System/Library/LaunchDaemons` itself and neither
+creates `Sockets` nor honours `Disabled` there, and a root-owned socket that
+everyone may use would need either X authorization the clients don't have or
+none at all.
+
+**Disabled by default.** The agent is `Disabled` and, like XQuartz's, limited
+to the `Aqua` session type (launchd-842's default for agents). NextBSD has no
+`Aqua` sessions until graphical logins move into them
+(nextbsd/nextbsd-userland#372), and today's images start X from the login
+window, so the agent does nothing on current images and can't start a second
+X server behind the login window's back. Once a user's graphical login runs
+in an `Aqua` session, the user turns it on from that session with
+
+```
+launchctl load -w -S Aqua /System/Library/LaunchAgents/org.nextbsd.xlibre.plist
+```
+
+(`-w` records it in the user's launchd overrides, so it stays on at the next
+login; `launchctl unload -w -S Aqua …` turns it off again). Jobs started in the
+session then see `DISPLAY`; a shell gets it with `launchctl getenv DISPLAY`.
+
+To try it today in a console login's `Background` session, load a copy with
+`LimitLoadToSessionType` set to `Background`:
+
+```
+mkdir -p ~/Library/LaunchAgents
+sed 's#<string>Aqua</string>#<string>Background</string>#' \
+    /System/Library/LaunchAgents/org.nextbsd.xlibre.plist \
+    > ~/Library/LaunchAgents/org.nextbsd.xlibre.plist
+launchctl load -F -S Background ~/Library/LaunchAgents/org.nextbsd.xlibre.plist
+export DISPLAY="$(launchctl getenv DISPLAY)"
+xset q        # the first client starts Xorg
+```
+
+**Limitation:** the server runs as the user. There is no set-uid wrapper and
+no seat manager (see Privilege above), so on a console `Xorg` can drive the
+display only where that user may open the DRM, input and VT devices. The
+socket handling is not tied to `Xorg`: a rootless XLibre server inside the
+WindowServer (nextbsd/nextbsd-xlibre#14), which runs as the user anyway, is
+meant to start the same way.
 
 ### The tools
 
@@ -323,7 +409,8 @@ a manual run from `main`, it also publishes `nextbsd-xlibre-<arch>.tar.gz` to
 the `continuous` release, rooted at `/`.
 
 The artifact holds the whole `/usr/X11` install of this repo: libraries,
-programs, data, man pages, headers, `.pc` files and `.so` links. Splitting
+programs, data, man pages, headers, `.pc` files and `.so` links, plus the
+`org.nextbsd.xlibre` LaunchAgent in `/System/Library/LaunchAgents`. Splitting
 runtime from development files, if wanted, is `nextbsd-pkg`'s job (E23 D13,
 `NextBSD-xlibre`).
 

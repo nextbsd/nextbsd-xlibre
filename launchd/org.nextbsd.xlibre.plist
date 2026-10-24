@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  org.nextbsd.xlibre.plist
+
+  Per-user LaunchAgent that starts the XLibre server when the first X client
+  connects: XQuartz's launch model (its org.xquartz.startx agent), on
+  NextBSD's launchd-842. Installed by nextbsd-xlibre into
+  /System/Library/LaunchAgents (nextbsd/nextbsd-xlibre#13).
+
+  How it works:
+  - When launchctl loads the agent into a user's session, it creates a
+    private directory (mkdtemp, mode 0700, owned by the user), binds the
+    socket "org.nextbsd.xlibre:0" in it, and, through SecureSocketWithKey,
+    sets DISPLAY to that socket's path for every job in the session.
+    libxcb (and so libX11) accepts a socket path as DISPLAY.
+  - Nothing runs until a client connects. launchd then starts Xorg, which
+    takes the socket with -launchd (launch_activate_socket(), liblaunch;
+    patches/xlibre-xserver/0005). Because only the user can reach the
+    socket, it needs no xauth cookie, as in XQuartz. Xorg opens no
+    /tmp/.X11-unix socket and no lock file of its own, so it never clashes
+    with an X server a login window has started.
+  - -terminate: the server exits when its last client disconnects; launchd
+    keeps the socket, and the next client starts it again. No RunAtLoad and
+    no KeepAlive, so nothing starts at boot or at login.
+  - Silent: launchd sends the server's stdout and stderr to /dev/null; Xorg
+    writes its own log (as a user: ~/.local/share/xorg/Xorg.0.log).
+
+  Disabled, and Aqua only, as XQuartz's agent is (the launchd-842 default
+  session type for an agent). Aqua sessions for graphical logins are
+  nextbsd/nextbsd-userland#372, and today's images start X from the login
+  window, so this agent stays off unless a user turns it on:
+
+    launchctl load -w -S Aqua /System/Library/LaunchAgents/org.nextbsd.xlibre.plist
+
+  (-w records it in the user's launchd overrides; `unload -w` turns it off
+  again). The server runs as the user, so on a console it can drive the
+  display only where that user may open the DRM, input and VT devices: there
+  is no set-uid wrapper and no seatd. README.md ("On-demand start") says
+  more, including how to try it in a console login's Background session.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.nextbsd.xlibre</string>
+	<key>Disabled</key>
+	<true/>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/X11/bin/Xorg</string>
+		<string>-launchd</string>
+		<string>org.nextbsd.xlibre:0</string>
+		<string>-terminate</string>
+	</array>
+	<key>Sockets</key>
+	<dict>
+		<key>org.nextbsd.xlibre:0</key>
+		<dict>
+			<key>SecureSocketWithKey</key>
+			<string>DISPLAY</string>
+		</dict>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/dev/null</string>
+	<key>StandardErrorPath</key>
+	<string>/dev/null</string>
+</dict>
+</plist>
