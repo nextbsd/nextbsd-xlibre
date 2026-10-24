@@ -3,25 +3,26 @@ name: Build NextBSD xlibre (the X server stack)
 # Cross-builds the XLibre server's stack into /usr/X11 for amd64 and arm64 on
 # the x86_64 runner, inside the per-arch nextbsd-kernel-toolchain container,
 # from the pinned tarballs in sources.lock. So far: the server-support
-# libraries (epoll-shim, libepoxy, libxcvt) and the XKB data and compiler
-# (xkeyboard-config, xkbcomp), nextbsd-xlibre#1, the input stack
-# (libudev-devd, libevdev, mtdev, libinput), nextbsd-xlibre#2, and the XLibre
-# server (libpciaccess, xlibre-xserver with modesetting and glamor),
-# nextbsd-xlibre#3, its input and video drivers, nextbsd-xlibre#4, and the
-# X.Org tools (xauth, xinit, xset, setxkbmap, xinput, xrandr),
-# nextbsd-xlibre#5, plus the org.nextbsd.xlibre LaunchAgent that starts the
-# server on demand, nextbsd-xlibre#13. The sysroot is compat's `continuous` base with
-# nextbsd-xlibs' (the X client libraries, libdrm, pixman, libxkbfile) and
-# nextbsd-mesa's (libglvnd, Mesa's GL, EGL and GBM) `continuous` artifacts on
-# top.
+# libraries (libepoxy, libxcvt) and the XKB compiler (xkbcomp),
+# nextbsd-xlibre#1, the XLibre server (libpciaccess, xlibre-xserver with
+# modesetting and glamor), nextbsd-xlibre#3, its input and video drivers,
+# nextbsd-xlibre#4, and the X.Org tools (xauth, xinit, xset, setxkbmap,
+# xinput, xrandr), nextbsd-xlibre#5, plus the org.nextbsd.xlibre LaunchAgent
+# that starts the server on demand, nextbsd-xlibre#13. The sysroot is
+# compat's `continuous` base with nextbsd-displayserver-support's (libdrm,
+# pixman, the font stack, libxkbcommon, the XKB data and the input stack, in
+# /usr; E25, nextbsd-xlibre#12), nextbsd-xlibs' (the X client libraries,
+# libxkbfile) and nextbsd-mesa's (libglvnd, Mesa's GL, EGL and GBM)
+# `continuous` artifacts on top.
 # Same shape as nextbsd-xlibs (wiki: Source-Repo-Conventions).
 #
 # Publishes nextbsd-xlibre-<arch>.tar.gz to this repo's `continuous` release on
 # pushes to main and on manual runs from main; pull requests build only.
 #
 # Nothing is dispatched from here and nothing dispatches here: this repo is run
-# by hand after nextbsd-xlibs and nextbsd-mesa, and nextbsd-pkg after it (E23
-# plan; the rebuild-chain policy: a merge never rebuilds downstream repos).
+# by hand after nextbsd-displayserver-support, nextbsd-xlibs and nextbsd-mesa,
+# and nextbsd-pkg after it (E23 and E25 plans; the rebuild-chain policy: a
+# merge never rebuilds downstream repos).
 
 on:
   push:
@@ -58,15 +59,27 @@ jobs:
       # Stage the cross sysroot, in the order the repos build:
       #   1. compat's base: libc, libthr, libz and friends, headers and
       #      /usr/libdata/pkgconfig;
-      #   2. nextbsd-xlibs: libdrm, the X client libraries, pixman, libxkbfile
-      #      and the font stack in /usr/X11, with their headers and .pc files;
-      #   3. nextbsd-mesa: libglvnd (libGL, libEGL), Mesa's GBM and DRI
+      #   2. nextbsd-displayserver-support: libdrm, pixman, expat, freetype,
+      #      fontconfig, libxkbcommon, the XKB data (/usr/share/X11/xkb),
+      #      epoll-shim, libudev, libevdev, mtdev, libinput and
+      #      linux-input-shim in /usr, .pc files in /usr/libdata/pkgconfig;
+      #   3. nextbsd-xlibs: the X client libraries and libxkbfile in
+      #      /usr/X11, with their headers and .pc files;
+      #   4. nextbsd-mesa: libglvnd (libGL, libEGL), Mesa's GBM and DRI
       #      drivers, libGLU, with gl.pc, egl.pc, gbm.pc and dri.pc, which the
       #      server's GLX, glamor and modesetting need.
       # All public reads, so the built-in token is enough and fork PRs work.
       # build-xlibre.sh installs each component into this sysroot's /usr/X11
       # as it goes.
-      - name: Stage sysroot from compat, xlibs and mesa continuous
+      #
+      # Until nextbsd-xlibs#9, xlibs' artifact still has its own /usr/X11
+      # copies of libdrm, pixman, expat, freetype, fontconfig and core
+      # libxkbcommon (same versions). Every file displayserver-support ships
+      # at /usr/<path> is removed from the sysroot's /usr/X11/<path> (a .pc
+      # file from /usr/X11/lib/pkgconfig), so pkgconf, the compiler and the
+      # linker see only the /usr ones; build-xlibre.sh refuses the sysroot if
+      # a /usr/X11 copy is left. Once xlibs#9 lands, nothing matches.
+      - name: Stage sysroot from compat, displayserver-support, xlibs and mesa continuous
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -76,6 +89,10 @@ jobs:
             --pattern "nextbsd-base-${{ matrix.arch }}.tar.gz" \
             --output /tmp/base.tar.gz --clobber
           gh release download continuous \
+            --repo nextbsd/nextbsd-displayserver-support \
+            --pattern "nextbsd-displayserver-support-${{ matrix.arch }}.tar.gz" \
+            --output /tmp/dss.tar.gz --clobber
+          gh release download continuous \
             --repo nextbsd/nextbsd-xlibs \
             --pattern "nextbsd-xlibs-${{ matrix.arch }}.tar.gz" \
             --output /tmp/xlibs.tar.gz --clobber
@@ -83,9 +100,20 @@ jobs:
             --repo nextbsd/nextbsd-mesa \
             --pattern "nextbsd-mesa-${{ matrix.arch }}.tar.gz" \
             --output /tmp/mesa.tar.gz --clobber
-          for t in base xlibs mesa; do
+          for t in base dss xlibs mesa; do
             tar -C "$GITHUB_WORKSPACE/sysroot" -xzf "/tmp/$t.tar.gz"
           done
+          n=0
+          for f in $(tar -tzf /tmp/dss.tar.gz | grep -v '/$' | sed -e 's#^\./##' \
+                       -e 's#^usr/libdata/pkgconfig/#usr/X11/lib/pkgconfig/#' \
+                       -e '/^usr\/X11\//!s#^usr/#usr/X11/#'); do
+            if [ -e "$GITHUB_WORKSPACE/sysroot/$f" ] || [ -L "$GITHUB_WORKSPACE/sysroot/$f" ]; then
+              rm -f "$GITHUB_WORKSPACE/sysroot/$f"
+              echo "removed nextbsd-xlibs' /$f (nextbsd-displayserver-support has it in /usr)"
+              n=$((n + 1))
+            fi
+          done
+          echo "$n nextbsd-xlibs copies of displayserver-support files removed from the sysroot"
 
       - name: Build xlibre into /stage
         env:
@@ -97,7 +125,8 @@ jobs:
 
       # Raw tar of /stage rooted at /: everything under /usr/X11, headers, .pc
       # files and .so links included, plus the LaunchAgent in
-      # /System/Library/LaunchAgents. Splitting runtime from development files
+      # /System/Library/LaunchAgents and the empty /var/db/xkb (compiled
+      # keymaps). Splitting runtime from development files
       # is nextbsd-pkg's job (E23 D13, NextBSD-xlibre).
       - name: Pack xlibre artifact
         run: |

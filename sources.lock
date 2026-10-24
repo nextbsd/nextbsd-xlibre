@@ -7,12 +7,14 @@
 # archives) are listed: no FreeBSD packages or ports distfiles, no xsrc or
 # xenocara. Bumping a version is a deliberate change to this file.
 #
-# The X client libraries, pixman and libxkbfile are not listed: they come from
-# nextbsd-xlibs' `continuous` artifact, staged into the sysroot by CI.
+# The X client libraries and libxkbfile are not listed: they come from
+# nextbsd-xlibs' `continuous` artifact, staged into the sysroot by CI. Nor are
+# libdrm, pixman, the font stack, libxkbcommon, xkeyboard-config, epoll-shim,
+# libudev-devd, libevdev, mtdev and libinput: they moved to
+# nextbsd-displayserver-support (E25, nextbsd-xlibre#12), whose `continuous`
+# artifact installs them in /usr.
 
-# ---- server-support libraries and xkb (nextbsd-xlibre#1), in build order ----
-# epoll-shim publishes no release tarball: a GitHub tag archive.
-epoll-shim          0.0.20240608  8f5125217e4a0eeb96ab01f9dfd56c38f85ac3e8f26ef2578e538e72e87862cb  https://github.com/jiixyj/epoll-shim/archive/refs/tags/v0.0.20240608.tar.gz
+# ---- server-support libraries and xkbcomp (nextbsd-xlibre#1), in build order ----
 # khronos-headers: EGL/ and KHR/ from libglvnd 1.7.0's tag archive (the Khronos
 # EGL-Registry has no tags). Build input only, for libepoxy's EGL dispatch;
 # not in the artifact (nextbsd-mesa ships these headers).
@@ -21,17 +23,7 @@ khronos-headers     1.7.0         2b6e15b06aafb4c0b6e2348124808cbd9b291c647299ea
 # its SHA-256 matches download.gnome.org's libepoxy-1.5.10.sha256sum.
 libepoxy            1.5.10        072cda4b59dd098bba8c2363a6247299db1fa89411dc221c8b81b8ee8192e623  https://download.gnome.org/sources/libepoxy/1.5/libepoxy-1.5.10.tar.xz
 libxcvt             0.1.3         a929998a8767de7dfa36d6da4751cdbeef34ed630714f2f4a767b351f2442e01  https://xorg.freedesktop.org/archive/individual/lib/libxcvt-0.1.3.tar.xz
-xkeyboard-config    2.48          b77041324f0109f77161ee43743fe04baa485866af8460d31e476ad3f7648fd5  https://xorg.freedesktop.org/archive/individual/data/xkeyboard-config/xkeyboard-config-2.48.tar.xz
 xkbcomp             1.5.0         2ac31f26600776db6d9cd79b3fcd272263faebac7eb85fb2f33c7141b8486060  https://xorg.freedesktop.org/archive/individual/app/xkbcomp-1.5.0.tar.xz
-
-# ---- the input stack (nextbsd-xlibre#2, E23 D10), in build order ----
-# libudev-devd: a GitHub tag archive (no release tarball), wulf7's repo, which
-# FreeBSD's devel/libudev-devd also fetches. 0.7.0, unmodified (E23 D10).
-libudev-devd        0.7.0         a3a64de87ea1affb2485dac625c8d47714a766717315ffe0443be1f240206815  https://github.com/wulf7/libudev-devd/archive/refs/tags/v0.7.0.tar.gz
-libevdev            1.14.0        5a0966c7110648665983848bad696c7acba614a2160d2865d535397101007332  https://www.freedesktop.org/software/libevdev/libevdev-1.14.0.tar.xz
-mtdev               1.1.7         a107adad2101fecac54ac7f9f0e0a0dd155d954193da55c2340c97f2ff1d814e  https://bitmath.org/code/mtdev/mtdev-1.1.7.tar.bz2
-# libinput publishes its releases as GitLab tag archives.
-libinput            1.32.0        3a6065c07b118c08d0c7b7b85a265ecb050a8cfc91eeb360890d768a51b4cce9  https://gitlab.freedesktop.org/libinput/libinput/-/archive/1.32.0/libinput-1.32.0.tar.bz2
 
 # ---- the X server (nextbsd-xlibre#3, E23 step 11), in build order ----
 # libpciaccess: the server's PCI bus access (hard requirement with

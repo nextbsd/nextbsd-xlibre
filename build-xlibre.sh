@@ -6,11 +6,15 @@
 # Builds the XLibre X server's stack NextBSD ships in base (E23, plan step 9
 # onwards) for ONE architecture, from pinned upstream release tarballs, into
 # the /usr/X11 prefix with upstream sonames. So far: the server's support
-# libraries (epoll-shim, libepoxy, libxcvt), the XKB keymap data and compiler
-# (xkeyboard-config, xkbcomp), the input stack (libudev-devd, libevdev,
-# mtdev, libinput), the XLibre server (libpciaccess, xlibre-xserver with
-# modesetting and glamor), its input and video drivers, and the X.Org tools
-# (xauth, xinit, xset, setxkbmap, xinput, xrandr).
+# libraries (libepoxy, libxcvt), the XKB keymap compiler (xkbcomp), the
+# XLibre server (libpciaccess, xlibre-xserver with modesetting and glamor),
+# its input and video drivers, and the X.Org tools (xauth, xinit, xset,
+# setxkbmap, xinput, xrandr).
+#
+# What both display servers share (libdrm, pixman, expat, freetype,
+# fontconfig, libxkbcommon, the XKB data, epoll-shim, libudev, libevdev,
+# mtdev, libinput and the <linux/input.h> shim) is not built here: it comes
+# from nextbsd-displayserver-support's artifact in /usr (E25, nextbsd-xlibre#12).
 #
 # For each component, in COMPONENTS order:
 #   1. fetch:   download the tarball named in sources.lock, refuse it unless
@@ -29,17 +33,22 @@
 # is rewritten as a hand-made makefile. Nothing here uses FreeBSD packages, the
 # ports tree or ports tools, and nothing links against nextbsd-userland (Xorg
 # loads liblaunch only at run time, and only with -launchd): the
-# inputs are sources.lock, the NextBSD base (compat) sysroot, and nextbsd-xlibs'
-# (the X client libraries, libdrm, pixman, libxkbfile) and nextbsd-mesa's
-# (libglvnd, Mesa's GL/EGL/GBM) `continuous` artifacts on top.
+# inputs are sources.lock, the NextBSD base (compat) sysroot, and
+# nextbsd-displayserver-support's (the shared libraries and XKB data, in
+# /usr), nextbsd-xlibs' (the X client libraries, libxkbfile) and
+# nextbsd-mesa's (libglvnd, Mesa's GL/EGL/GBM) `continuous` artifacts on top.
 #
 # EXECUTION CONTEXT (set up by CI before this runs)
 #   Inside the nextbsd-kernel-toolchain container (pinned clang/lld 19.1.7 in
 #   $CROSS_BINDIR, meson, ninja, cmake, pkgconf, autotools, util-macros,
-#   python3, perl, bison), with compat's `continuous` base, then nextbsd-xlibs'
-#   and nextbsd-mesa's `continuous` artifacts, extracted into $SYSROOT.
-#   $SYSROOT is scratch: this script installs every component into its
-#   /usr/X11 as it goes.
+#   python3, perl, bison), with compat's `continuous` base, then
+#   nextbsd-displayserver-support's, nextbsd-xlibs' and nextbsd-mesa's
+#   `continuous` artifacts, extracted into $SYSROOT. Until nextbsd-xlibs#9,
+#   xlibs' own /usr/X11 copies of the libraries that moved to
+#   displayserver-support are removed from the sysroot after extraction, so
+#   only the /usr ones are there (check_displayserver_support refuses the
+#   sysroot otherwise). $SYSROOT is scratch: this script installs every
+#   component into its /usr/X11 as it goes.
 #
 # USAGE
 #   ./build-xlibre.sh              every component, in COMPONENTS order
@@ -68,10 +77,29 @@ XLIBRE_CROSS="$ROOT/cross"
 # on pkgconf's path.
 X_PREFIX=/usr/X11
 
-# The only file this repo installs outside $X_PREFIX: the org.nextbsd.xlibre
-# LaunchAgent (launchd/, nextbsd-xlibre#13), next to the userland's agents.
+# What this repo installs outside $X_PREFIX: the org.nextbsd.xlibre
+# LaunchAgent (launchd/, nextbsd-xlibre#13), next to the userland's agents,
+# and the (empty) directory the server writes compiled keymaps to (E25).
 LAUNCH_AGENTS_DIR=/System/Library/LaunchAgents
-OUTSIDE_PREFIX="$LAUNCH_AGENTS_DIR/org.nextbsd.xlibre.plist"
+XKM_DIR=/var/db/xkb
+LAUNCH_AGENT="$LAUNCH_AGENTS_DIR/org.nextbsd.xlibre.plist"
+OUTSIDE_PREFIX="$LAUNCH_AGENT $XKM_DIR"
+
+# nextbsd-displayserver-support (E25 D4) installs into /usr: libraries in
+# /usr/lib, .pc files in /usr/libdata/pkgconfig (which pkgconf searches after
+# /usr/X11/lib/pkgconfig, with the base's), the XKB data in
+# /usr/share/xkeyboard-config-2 with the legacy root /usr/share/X11/xkb
+# linking to it. The server, xkbcomp and setxkbmap read the XKB data there.
+DSS_PC_DIR=/usr/libdata/pkgconfig
+XKB_DIR=/usr/share/X11/xkb
+# The modules and sonames that moved there (nextbsd-xlibre#12; libdrm, pixman,
+# expat, freetype, fontconfig and libxkbcommon from nextbsd-xlibs, the rest
+# from here). Each must resolve from /usr, never from a /usr/X11 copy.
+DSS_MODULES="libdrm pixman-1 expat freetype2 fontconfig xkbcommon xkeyboard-config
+    epoll-shim libudev linux-input-shim libevdev mtdev libinput"
+DSS_SONAMES="libdrm.so.2 libpixman-1.so.0 libexpat.so.1 libfreetype.so.6
+    libfontconfig.so.1 libxkbcommon.so.0 libepoll-shim.so.0 libudev.so.0
+    libevdev.so.2 libmtdev.so.1 libinput.so.10"
 
 case "$T" in
     amd64) CROSS_TRIPLE=x86_64-unknown-freebsd ;;
@@ -83,6 +111,8 @@ JOBS=-j"$(nproc 2>/dev/null || echo 2)"
 
 SYSROOT="$(cd "$SYSROOT" && pwd)"
 export SYSROOT DESTDIR CROSS_BINDIR XLIBRE_CROSS
+# pkgconf's search path, as the cross files set it (cross/meson, cross/autotools).
+PKG_LIBDIR="$SYSROOT$X_PREFIX/lib/pkgconfig:$SYSROOT$DSS_PC_DIR"
 
 # ---- helpers -----------------------------------------------------------------
 comp() { echo; echo "==> [$T/$TA] $*"; }
@@ -109,6 +139,33 @@ needed_check() {
     "$CROSS_BINDIR/llvm-readelf" -d "$obj" 2>/dev/null | grep -q "NEEDED.*\[$want" \
         || fail "$obj missing DT_NEEDED $want"
     note "DT_NEEDED ok: $(basename "$obj") -> $want"
+}
+
+# needed_resolve <obj>: every library a staged object links is in the sysroot:
+# this repo's, nextbsd-xlibs' or nextbsd-mesa's in /usr/X11/lib, or the base's
+# or nextbsd-displayserver-support's in /lib or /usr/lib. The libraries that
+# moved to displayserver-support (DSS_SONAMES) must come from /usr/lib. Each
+# one's location is logged.
+needed_resolve() {
+    local obj="$1" lib
+    for lib in $("$CROSS_BINDIR/llvm-readelf" -d "$obj" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+        case " $(echo $DSS_SONAMES) " in
+            *" $lib "*)
+                [ -e "$SYSROOT/usr/lib/$lib" ] && [ ! -e "$SYSROOT$X_PREFIX/lib/$lib" ] \
+                    || fail "$(basename "$obj") links $lib, which does not resolve from /usr/lib only"
+                note "$(basename "$obj"): $lib in /usr/lib (nextbsd-displayserver-support)"
+                ;;
+            *)
+                if [ -e "$SYSROOT$X_PREFIX/lib/$lib" ]; then
+                    note "$(basename "$obj"): $lib in $X_PREFIX/lib"
+                elif [ -e "$SYSROOT/lib/$lib" ] || [ -e "$SYSROOT/usr/lib/$lib" ]; then
+                    note "$(basename "$obj"): $lib in the base"
+                else
+                    fail "$(basename "$obj") links $lib, which is neither in $X_PREFIX/lib nor in /lib or /usr/lib"
+                fi
+                ;;
+        esac
+    done
 }
 
 # Assert a staged shared library carries the upstream soname.
@@ -270,28 +327,65 @@ cmake_build() {
     DESTDIR="$COMP_ROOT" cmake --install "$COMP_BUILD"
 }
 
+# check_displayserver_support: nextbsd-displayserver-support is staged in the
+# sysroot, and every library that moved there resolves from /usr only:
+#   - each moved module's .pc is the one in /usr/libdata/pkgconfig (pkgconf
+#     --path), with prefix=/usr;
+#   - each moved soname is in /usr/lib, and /usr/X11/lib has no copy (until
+#     nextbsd-xlibs#9 the workflow removes xlibs' copies from the sysroot);
+#   - the XKB data resolves through /usr/share/X11/xkb.
+# The log shows where each one came from.
+check_displayserver_support() {
+    local m path pfx s f
+    comp "nextbsd-displayserver-support in the sysroot (/usr)"
+    [ -f "$SYSROOT$DSS_PC_DIR/libinput.pc" ] \
+        || fail "$SYSROOT has no nextbsd-displayserver-support ($DSS_PC_DIR/libinput.pc); stage its continuous artifact first"
+    for m in $DSS_MODULES; do
+        path=$(pkgconf_sysroot --path "$m") || fail "pkgconf cannot resolve $m"
+        printf '%s\n' "$path" | grep -q -x -F "$SYSROOT$DSS_PC_DIR/$m.pc" \
+            && ! printf '%s\n' "$path" | grep -q -x -F "$SYSROOT$X_PREFIX/lib/pkgconfig/$m.pc" \
+            || fail "pkgconf resolves $m to $(echo ${path//"$SYSROOT"/}), not $DSS_PC_DIR/$m.pc"
+        path="$SYSROOT$DSS_PC_DIR/$m.pc"
+        pfx=$(sed -n 's/^prefix=//p' "$path")
+        [ -z "$pfx" ] || [ "$pfx" = /usr ] || fail "$m.pc: prefix is $pfx, not /usr"
+        note "pkgconf: $m $(pkgconf_sysroot --modversion "$m") from $DSS_PC_DIR/$m.pc"
+    done
+    for s in $DSS_SONAMES; do
+        [ -e "$SYSROOT/usr/lib/$s" ] || fail "$s is not in the sysroot's /usr/lib"
+        if [ -e "$SYSROOT$X_PREFIX/lib/$s" ] || [ -L "$SYSROOT$X_PREFIX/lib/$s" ]; then
+            fail "$X_PREFIX/lib/$s is in the sysroot too (nextbsd-xlibs' old copy); remove it so /usr/lib's is used"
+        fi
+        note "$s in /usr/lib only"
+    done
+    for f in rules/evdev keycodes/evdev symbols/us types/basic compat/basic; do
+        test -f "$SYSROOT$XKB_DIR/$f" || fail "$XKB_DIR/$f does not resolve in the sysroot"
+    done
+    note "XKB data: $XKB_DIR -> $(readlink "$SYSROOT$XKB_DIR")"
+}
+
 # The files already in the sysroot before this script installs anything: the
-# compat base and the /usr/X11 of nextbsd-xlibs and nextbsd-mesa. Listed while
-# the sysroot holds none of this repo's files (epoll-shim's header, the first
-# component's, is the marker), so stage can refuse a component that would
-# overwrite a base, nextbsd-xlibs or nextbsd-mesa file. A later partial run
-# reuses the list.
+# compat base, nextbsd-displayserver-support's /usr and the /usr/X11 of
+# nextbsd-xlibs and nextbsd-mesa. Listed while the sysroot holds none of this
+# repo's files (libepoxy's epoxy/gl.h is the marker: libepoxy is the first
+# component that ships, since khronos-headers is sysroot-only and skipped
+# when nextbsd-mesa is staged), so stage can refuse a component that would
+# overwrite any of those files. A later partial run reuses the list.
 base_list() {
     BASE_LIST="$BUILD/base-files-$T.list"
     mkdir -p "$BUILD"
     [ -f "$SYSROOT$X_PREFIX/include/X11/Xlib.h" ] \
         || fail "$SYSROOT$X_PREFIX has no nextbsd-xlibs (X11/Xlib.h); stage its continuous artifact first"
-    if [ ! -e "$SYSROOT$X_PREFIX/include/libepoll-shim/sys/epoll.h" ]; then
+    if [ ! -e "$SYSROOT$X_PREFIX/include/epoxy/gl.h" ]; then
         (cd "$SYSROOT" && find . ! -type d | sed 's#^\./##' | LC_ALL=C sort) > "$BASE_LIST"
     elif [ ! -f "$BASE_LIST" ]; then
-        fail "$SYSROOT already holds this repo's files but $BASE_LIST is missing; start from a fresh compat base and nextbsd-xlibs"
+        fail "$SYSROOT already holds this repo's files but $BASE_LIST is missing; start from a fresh compat base, nextbsd-displayserver-support, nextbsd-xlibs and nextbsd-mesa"
     fi
 }
 
 # stage <name> [sysroot-only]: tidy and check $COMP_ROOT, then copy it into
 # $SYSROOT (for the components after this one) and $DESTDIR (the artifact).
 #   - everything must be under /usr/X11, apart from $OUTSIDE_PREFIX, and
-#     nothing may replace a base file;
+#     nothing may replace a file already in the sysroot (base_list);
 #   - libtool .la files and docs are dropped (man pages are kept);
 #   - .pc files from share/pkgconfig and libdata/pkgconfig move to
 #     lib/pkgconfig;
@@ -325,8 +419,8 @@ stage() {
     done
     for f in "$x"/lib/pkgconfig/*.pc; do
         [ -e "$f" ] || continue
-        # A data-only .pc (xkeyboard-config's) has no prefix= line; then
-        # every absolute path it sets must be under the prefix.
+        # A data-only .pc has no prefix= line; then every absolute path it
+        # sets must be under the prefix.
         if grep -q '^prefix=' "$f"; then
             grep -q "^prefix=$X_PREFIX\$" "$f" || fail "$(basename "$f"): prefix is not $X_PREFIX"
         elif grep -E '^[A-Za-z_]+=/' "$f" | grep -v -E "^[A-Za-z_]+=$X_PREFIX(/|\$)"; then
@@ -344,7 +438,7 @@ stage() {
     done
     find "$x" -type d -empty -delete
     clash=$(cd "$COMP_ROOT" && find . ! -type d | sed 's#^\./##' | LC_ALL=C sort | LC_ALL=C comm -12 - "$BASE_LIST")
-    [ -z "$clash" ] || fail "$name would replace files of the NextBSD base, nextbsd-xlibs or nextbsd-mesa: $clash"
+    [ -z "$clash" ] || fail "$name would replace files of the NextBSD base, nextbsd-displayserver-support, nextbsd-xlibs or nextbsd-mesa: $clash"
     (cd "$COMP_ROOT" && tar -cf - .) | (cd "$SYSROOT" && tar -xf -)
     if [ "$where" = sysroot-only ]; then
         note "staged $(cd "$COMP_ROOT" && find . ! -type d | wc -l) files (sysroot only, not in the artifact)"
@@ -354,12 +448,17 @@ stage() {
     note "staged $(cd "$COMP_ROOT" && find . ! -type d | wc -l) files"
 }
 
+# pkgconf_sysroot <pkgconf args...>: pkgconf as the builds see it: only the
+# sysroot's .pc directories, -I/-L prefixed with the sysroot.
+pkgconf_sysroot() {
+    PKG_CONFIG_LIBDIR="$PKG_LIBDIR" PKG_CONFIG_SYSROOT_DIR="$SYSROOT" pkgconf "$@"
+}
+
 # pc_check <module> [version]: the staged .pc resolves through pkgconf the way
 # later components will see it (and, if given, at that version).
 pc_check() {
     local mod="$1" want="${2:-}" got
-    got=$(PKG_CONFIG_LIBDIR="$SYSROOT$X_PREFIX/lib/pkgconfig:$SYSROOT/usr/libdata/pkgconfig" PKG_CONFIG_SYSROOT_DIR="$SYSROOT" \
-          pkgconf --modversion "$mod") || fail "pkgconf cannot resolve $mod"
+    got=$(pkgconf_sysroot --modversion "$mod") || fail "pkgconf cannot resolve $mod"
     [ -z "$want" ] || [ "$got" = "$want" ] || fail "$mod.pc is version $got, expected $want"
     note "pkgconf ok: $mod $got"
 }
@@ -367,49 +466,10 @@ pc_check() {
 
 # =============================================================================
 # Components, in build order (E23 audit 3, section 2.2): the server's support
-# libraries, then the XKB data and compiler (nextbsd-xlibre#1). pixman moved
-# to nextbsd-xlibs (E24 Q5) and comes from its artifact.
+# libraries, then the XKB compiler (nextbsd-xlibre#1). epoll-shim and the XKB
+# data moved to nextbsd-displayserver-support (E25) and come from its
+# artifact in /usr.
 # =============================================================================
-
-# epoll-shim — epoll(7), signalfd(2) on kqueue, which the XLibre server's
-# meson requires on FreeBSD (os/ostimer and the input thread). CMake.
-#
-# NextBSD's libc has eventfd(2) and timerfd_create(2), so epoll-shim builds and
-# installs neither (as the FreeBSD port does on 15): its sys/eventfd.h and
-# sys/timerfd.h would shadow the base headers. Two configure checks run a
-# target program and are answered here for cross builds:
-#   ALLOWS_ONESHOT_TIMERS_WITH_TIMEOUT_ZERO  FreeBSD's EVFILT_TIMER accepts a
-#       zero timeout with EV_ONESHOT (filt_timerattach only bumps 0 to 1 for
-#       periodic timers), so the quirk stays off;
-#   the POLLRDHUP probe  its value is read from the sysroot's sys/poll.h. The
-#       probe program calls printf without <stdio.h>, which clang 19 refuses,
-#       so the build falls back to upstream's 0x2000 as it does natively; the
-#       answer only matters if that ever compiles.
-# The tests (and microatf, the test framework they need) are off.
-build_epoll_shim() {
-    comp "epoll-shim [cmake cross]"
-    fresh_dirs epoll-shim
-    fetch epoll-shim
-    local rdhup
-    rdhup=$(awk '$1 == "#define" && $2 == "POLLRDHUP" { print $3 }' "$SYSROOT/usr/include/sys/poll.h")
-    [ -n "$rdhup" ] || fail "POLLRDHUP not found in the sysroot's sys/poll.h"
-    cmake_build -DBUILD_TESTING=OFF \
-        -DALLOWS_ONESHOT_TIMERS_WITH_TIMEOUT_ZERO=1 \
-        -DHAVE_POLLRDHUP_RUN_RESULT=0 \
-        -DHAVE_POLLRDHUP_RUN_RESULT__TRYRUN_OUTPUT="$rdhup"
-    stage epoll-shim
-    local x="$DESTDIR$X_PREFIX/include/libepoll-shim"
-    test -f "$x/sys/epoll.h" || fail "libepoll-shim/sys/epoll.h not staged"
-    test -f "$x/sys/signalfd.h" || fail "libepoll-shim/sys/signalfd.h not staged"
-    for h in eventfd timerfd; do
-        [ ! -e "$x/sys/$h.h" ] || fail "libepoll-shim/sys/$h.h staged; the base's sys/$h.h must be used"
-    done
-    note "EPOLLRDHUP is $(awk '$2 == "EPOLLRDHUP" { print $3 }' "$x/sys/epoll.h")"
-    so_check libepoll-shim.so.0 libepoll-shim-interpose.so.0
-    lib_needs libepoll-shim-interpose.so.0 libepoll-shim.so.0
-    pc_check epoll-shim
-    pc_check epoll-shim-interpose
-}
 
 # khronos-headers — the Khronos EGL/ and KHR/ headers (egl.h, eglext.h,
 # eglplatform.h, khrplatform.h), build input for libepoxy's EGL dispatch:
@@ -460,7 +520,7 @@ build_libepoxy() {
     not_needed "$x/lib/libepoxy.so.0" 'libGL' 'libEGL' 'libGLES' 'libOpenGL'
     pc_check epoxy "$VERSION"
     for v in epoxy_has_glx epoxy_has_egl; do
-        [ "$(PKG_CONFIG_LIBDIR="$SYSROOT$X_PREFIX/lib/pkgconfig" pkgconf --variable="$v" epoxy)" = 1 ] \
+        [ "$(PKG_CONFIG_LIBDIR="$PKG_LIBDIR" pkgconf --variable="$v" epoxy)" = 1 ] \
             || fail "epoxy.pc: $v is not 1"
         note "epoxy.pc: $v=1"
     done
@@ -480,192 +540,34 @@ build_libxcvt() {
     pc_check libxcvt "$VERSION"
 }
 
-# xkeyboard-config — the XKB keymap database. meson (python3 generates the
-# rules files, perl the .lst files on the build host). The data goes in
-# /usr/X11/share/xkeyboard-config-2, with upstream's /usr/X11/share/X11/xkb
-# link to it: that is where nextbsd-xlibs' libxkbcommon, xkbcomp below and the
-# server look. Compatibility rules on (upstream default), no "xorg" rules links
-# (the server's default rules are evdev), no NLS (translated descriptions in
-# the registry XML only; msgfmt is not in the toolchain image). The man page
-# needs xsltproc, which the image does not have, so it is not built.
-build_xkeyboard_config() {
-    comp "xkeyboard-config [meson cross]"
-    fresh_dirs xkeyboard-config
-    fetch xkeyboard-config
-    meson_build -Dnls=false -Dcompat-rules=true -Dxorg-rules-symlinks=false \
-        -Dnon-latin-layouts-list=false
-    stage xkeyboard-config
-    local x="$DESTDIR$X_PREFIX" d="$DESTDIR$X_PREFIX/share/xkeyboard-config-2" f link
-    for f in rules/evdev rules/base rules/evdev.xml rules/evdev.lst rules/base.lst \
-             keycodes/evdev symbols/us symbols/pc types/basic compat/basic; do
-        test -f "$d/$f" || fail "xkeyboard-config-2/$f not staged"
-    done
-    link=$(readlink "$x/share/X11/xkb") || fail "$X_PREFIX/share/X11/xkb not staged"
-    [ "$link" = "$X_PREFIX/share/xkeyboard-config-2" ] \
-        || fail "$X_PREFIX/share/X11/xkb points to $link, not $X_PREFIX/share/xkeyboard-config-2"
-    note "$X_PREFIX/share/X11/xkb -> $link"
-    pc_check xkeyboard-config "$VERSION"
-    [ "$(PKG_CONFIG_LIBDIR="$SYSROOT$X_PREFIX/lib/pkgconfig" pkgconf --variable=xkb_base xkeyboard-config)" = "$X_PREFIX/share/X11/xkb" ] \
-        || fail "xkeyboard-config.pc: xkb_base is not $X_PREFIX/share/X11/xkb"
-    note "xkeyboard-config.pc: xkb_base=$X_PREFIX/share/X11/xkb"
+# xkb_path_check <file> <what>: a staged program names the XKB root
+# /usr/share/X11/xkb (nextbsd-displayserver-support's xkeyboard-config, the
+# path its libxkbcommon uses too) and not the old /usr/X11/share/X11/xkb.
+xkb_path_check() {
+    local f="$1" what="$2"
+    grep -q -a -F "$XKB_DIR" "$f" || fail "$what does not name $XKB_DIR"
+    ! grep -q -a -F "$X_PREFIX/share/X11/xkb" "$f" || fail "$what still names $X_PREFIX/share/X11/xkb"
+    note "$what XKB config root: $XKB_DIR"
 }
 
 # xkbcomp — the XKB keymap compiler the server runs at start-up and on
 # keymap changes, in /usr/X11/bin. meson (bison on the build host). Its XKB
-# config root is /usr/X11/share/X11/xkb, the same path libxkbcommon uses.
+# config root is /usr/share/X11/xkb (E25), the same path libxkbcommon uses.
 build_xkbcomp() {
     comp "xkbcomp [meson cross]"
     fresh_dirs xkbcomp
     fetch xkbcomp
-    meson_build -Dxkb-config-root="$X_PREFIX/share/X11/xkb"
+    meson_build -Dxkb-config-root="$XKB_DIR"
     stage xkbcomp
     local bin="$DESTDIR$X_PREFIX/bin/xkbcomp"
     test -x "$bin" || fail "xkbcomp not staged"
     needed_check "$bin" libxkbfile.so.1
     needed_check "$bin" libX11.so.6
-    grep -q -a -F "$X_PREFIX/share/X11/xkb" "$bin" || fail "xkbcomp does not name $X_PREFIX/share/X11/xkb"
-    note "xkbcomp XKB config root: $X_PREFIX/share/X11/xkb"
+    xkb_path_check "$bin" xkbcomp
     pc_check xkbcomp "$VERSION"
-}
-
-# =============================================================================
-# The input stack (nextbsd-xlibre#2, E23 D10): libinput, which the server's
-# xf86-input-libinput driver uses and whose properties the Mouse settings set,
-# and what it needs: a libudev (libudev-devd), libevdev and mtdev.
-#
-# The kernel's evdev(4) nodes (/dev/input/event*) carry the events. Which
-# drivers deliver to them is the kern.evdev.rcpt_mask policy, set in the image
-# by nextbsd-overlays (/etc/sysctl.conf), not here.
-# =============================================================================
-
-# libudev-devd 0.7.0 — the libudev API on NextBSD's devfs, sysctl and devinfo:
-# libinput enumerates input devices through it. Unmodified (E23 D10). meson.
-#
-# It finds /dev/input/event*, /dev/kbdmux*, /dev/sysmouse and the rest once,
-# when the caller enumerates (X start-up). Its udev_monitor (hotplug) listens
-# on devd's socket, and NextBSD has no devd, so devices that appear later are
-# not seen: hotplug through IOKit is later work (nextbsd/nextbsd#482). The GPL
-# code (enable-gpl) stays off. Upstream's default is werror=true; clang 19
-# adds warnings 0.7.0 predates, so -Werror is off (as FreeBSD's port does).
-# Links the base's libdevinfo and libprocstat.
-build_libudev_devd() {
-    comp "libudev-devd [meson cross]"
-    fresh_dirs libudev-devd
-    fetch libudev-devd
-    meson_build -Dwerror=false -Denable-gpl=false
-    stage libudev-devd
-    test -f "$DESTDIR$X_PREFIX/include/libudev.h" || fail "libudev.h not staged"
-    so_check libudev.so.0
-    lib_needs libudev.so.0 libdevinfo.so libprocstat.so
-    no_build_rpath "$DESTDIR$X_PREFIX/lib/libudev.so.0"
-    # libudev-devd's .pc claims udev 243's API level; libinput asks for none.
-    pc_check libudev 243
-}
-
-# libevdev — the evdev device wrapper libinput (and later xf86-input-evdev)
-# uses. meson; python3 generates the event-name tables on the build host. The
-# kernel interface comes from the copy of NextBSD's dev/evdev/input.h the
-# tarball carries (include/linux/freebsd/, picked by host_machine.system()).
-# The tools (libevdev-tweak-device, mouse-dpi-tool, touchpad-edge-detector)
-# are built; the tests (they need check) and the doxygen docs are not.
-build_libevdev() {
-    comp "libevdev [meson cross]"
-    fresh_dirs libevdev
-    fetch libevdev
-    meson_build -Dtests=disabled -Ddocumentation=disabled -Dtools=enabled
-    stage libevdev
-    local x="$DESTDIR$X_PREFIX" t
-    for h in libevdev libevdev-uinput; do
-        test -f "$x/include/libevdev-1.0/libevdev/$h.h" || fail "libevdev/$h.h not staged"
-    done
-    for t in libevdev-tweak-device mouse-dpi-tool touchpad-edge-detector; do
-        test -x "$x/bin/$t" || fail "$t not staged"
-    done
-    so_check libevdev.so.2
-    no_build_rpath "$x/lib/libevdev.so.2"
-    pc_check libevdev "$VERSION"
-}
-
-# mtdev — turns multitouch protocol A devices into protocol B slots for
-# libinput. autotools.
-#
-# mtdev.h includes <linux/input.h>, which NextBSD's base doesn't have (FreeBSD
-# gets it from the devel/evdev-proto port, which is not used here). For the
-# library's own build, a one-line linux/input.h that includes the base's
-# <dev/evdev/input.h> (the same kernel ABI) goes on the include path. It lives
-# in the build directory only, and mtdev.h is installed unchanged. libinput
-# brings its own linux/input.h for its include of mtdev.h. The shipped
-# equivalent, for the drivers and anything built later against mtdev.h or
-# libevdev.h, is linux-input-shim (after the server).
-build_mtdev() {
-    comp "mtdev [autotools cross]"
-    fresh_dirs mtdev
-    fetch mtdev
-    local compat="$BUILD/evdev-compat-$T"
-    rm -rf "$compat"
-    mkdir -p "$compat/linux"
-    printf '%s\n' '/* NextBSD build-only shim: the base kernel evdev ABI. */' \
-        '#include <dev/evdev/input.h>' > "$compat/linux/input.h"
-    autotools_build CPPFLAGS="-I$compat"
-    stage mtdev
-    test -f "$DESTDIR$X_PREFIX/include/mtdev.h" || fail "mtdev.h not staged"
-    test -x "$DESTDIR$X_PREFIX/bin/mtdev-test" || fail "mtdev-test not staged"
-    so_check libmtdev.so.1
-    no_build_rpath "$DESTDIR$X_PREFIX/lib/libmtdev.so.1"
-    pc_check mtdev "$VERSION"
-}
-
-# libinput — the input library behind xf86-input-libinput. meson.
-#
-# Options: mtdev on; libwacom off (no libwacom in base, E23 D10); Lua plugins
-# off, and so no plugin autoloading; no debug-gui (GTK), tests or docs; no zsh
-# completion (it would go in /usr/X11/share/zsh, outside zsh's fpath).
-#
-# epoll comes from epoll-shim (built above). libinput's meson looks for it
-# under -Depoll-dir (default: its own prefix, i.e. the build host's
-# /usr/X11), so that points into the sysroot.
-#
-# Installed: libinput.so.10 and libinput.h; the libinput tool in bin and its
-# helpers in libexec/libinput (the Python ones need a python3 at run time, as
-# upstream); the quirks database in /usr/X11/share/libinput (the local
-# override file is /usr/X11/etc/libinput/local-overrides.quirks, not shipped).
-# The udev rules and callouts in /usr/X11/lib/udev are removed, as FreeBSD's
-# port does: NextBSD has no udevd to run them.
-build_libinput() {
-    comp "libinput [meson cross]"
-    fresh_dirs libinput
-    fetch libinput
-    meson_build -Dlibwacom=false -Dmtdev=true -Dlua-plugins=disabled \
-        -Dautoload-plugins=false -Ddebug-gui=false -Dtests=false \
-        -Dinstall-tests=false -Ddocumentation=false -Dzshcompletiondir=no \
-        -Depoll-dir="$SYSROOT$X_PREFIX"
-    rm -rf "$COMP_ROOT$X_PREFIX/lib/udev"
-    stage libinput
-    local x="$DESTDIR$X_PREFIX" q n t
-    test -f "$x/include/libinput.h" || fail "libinput.h not staged"
-    so_check libinput.so.10
-    lib_needs libinput.so.10 libudev.so.0 libevdev.so.2 libmtdev.so.1 libepoll-shim.so.0
-    not_needed "$x/lib/libinput.so.10" 'libwacom' 'liblua' 'libgtk' 'libglib'
-    no_build_rpath "$x/lib/libinput.so.10"
-    test -x "$x/bin/libinput" || fail "the libinput tool is not staged"
-    no_build_rpath "$x/bin/libinput"
-    for t in libinput-list-devices libinput-debug-events libinput-quirks libinput-record; do
-        test -x "$x/libexec/libinput/$t" || fail "libexec/libinput/$t not staged"
-        no_build_rpath "$x/libexec/libinput/$t"
-    done
-    # Every quirks file in the tarball is installed, and libinput was built
-    # to read them from there.
-    n=0
-    for q in "$SRC_DIR"/quirks/*.quirks; do
-        test -f "$x/share/libinput/$(basename "$q")" || fail "quirks $(basename "$q") not staged"
-        n=$((n + 1))
-    done
-    [ "$n" -gt 0 ] || fail "no quirks files in the libinput tarball"
-    note "$n quirks files in $X_PREFIX/share/libinput"
-    grep -q -a -F "$X_PREFIX/share/libinput" "$x/lib/libinput.so.10" \
-        || fail "libinput.so.10 does not name $X_PREFIX/share/libinput"
-    [ ! -e "$x/lib/udev" ] || fail "$X_PREFIX/lib/udev staged"
-    pc_check libinput "$VERSION"
+    [ "$(PKG_CONFIG_LIBDIR="$PKG_LIBDIR" pkgconf --variable=xkbconfigdir xkbcomp)" = "$XKB_DIR" ] \
+        || fail "xkbcomp.pc: xkbconfigdir is not $XKB_DIR"
+    note "xkbcomp.pc: xkbconfigdir=$XKB_DIR"
 }
 
 # =============================================================================
@@ -716,7 +618,8 @@ build_libpciaccess() {
 # Servers: Xorg only. Xvfb, Xnest, Xephyr, Xfbdev, XWin and XQuartz are off;
 # there is no Xwayland in this tree.
 #
-# Graphics (D9): libdrm (nextbsd-xlibs), GBM, EGL and GL (nextbsd-mesa) and
+# Graphics (D9): libdrm and pixman (nextbsd-displayserver-support, /usr),
+# GBM, EGL and GL (nextbsd-mesa) and
 # libepoxy are all in the sysroot, so glamor, the modesetting driver (meson
 # builds it only with GBM), GLX with DRI, DRI2 and DRI3 are on; meson is told
 # so explicitly, so a missing dependency fails the build instead of quietly
@@ -724,8 +627,9 @@ build_libpciaccess() {
 # FreeBSD's port: NVIDIA's nvidia_drv.so is built for that ABI (E23 D15).
 #
 # Input and devices: the udev config backend and KMS device discovery
-# (platform bus) through libudev-devd (-Dudev=true -Dudev_kms=true, as FreeBSD's
-# port builds it); xf86-input-libinput is the fallback input driver. No HAL,
+# (platform bus) through libudev (libudev-devd, from nextbsd-displayserver-support;
+# -Dudev=true -Dudev_kms=true, as FreeBSD's port builds it); xf86-input-libinput
+# is the fallback input driver. No HAL,
 # no systemd-logind (it needs D-Bus), no seatd/libseat, no systemd notify, no
 # D-Bus at all.
 #
@@ -737,9 +641,10 @@ build_libpciaccess() {
 #
 # Paths: modules under /usr/X11/lib/xorg/modules (25.2.2 installs them in its
 # xlibre-25 ABI directory there, which the loader searches first); XKB data
-# /usr/X11/share/X11/xkb, xkbcomp from /usr/X11/bin; compiled keymaps in
-# /var/run (root-only, emptied at boot; the server falls back to /tmp if it
-# can't write there); logs in /var/log (Xorg.N.log); the default font path is
+# /usr/share/X11/xkb (nextbsd-displayserver-support's xkeyboard-config, E25),
+# xkbcomp from /usr/X11/bin; compiled keymaps in /var/db/xkb, a directory
+# this repo ships (the server writes there only if it can, otherwise in
+# $XDG_RUNTIME_DIR or /tmp); logs in /var/log (Xorg.N.log); the default font path is
 # the built-in fonts only (NextBSD ships no X core fonts). Configuration is
 # read from /usr/X11/etc/X11 and /etc/X11 as upstream does; none is shipped
 # here (it belongs in nextbsd-overlays). SHA-1 from the base's libmd; no
@@ -768,8 +673,8 @@ build_xlibre_xserver() {
         -Dsha1=libmd -Dxcsecurity=true -Dfallback_input_driver=libinput \
         -Dlegacy_nvidia_padding="$nvidia" \
         -Dlog_dir=/var/log -Ddefault_font_path=built-ins \
-        -Dxkb_dir="$X_PREFIX/share/X11/xkb" -Dxkb_bin_dir="$X_PREFIX/bin" \
-        -Dxkb_output_dir=/var/run
+        -Dxkb_dir="$XKB_DIR" -Dxkb_bin_dir="$X_PREFIX/bin" \
+        -Dxkb_output_dir="$XKM_DIR"
     # 25.2.2 installs upstream's NVIDIA OutputClass snippets: 10-nvidia.conf
     # and 10-nvidia-modules.conf in share/X11/xorg.conf.d (written for Linux
     # 6.12+'s nvidia-drm, with a ModulePath of /usr/X11/lib/nvidia/xorg) and
@@ -782,6 +687,8 @@ build_xlibre_xserver() {
     # -launchd (patch 0005) when the first X client connects. Disabled.
     install -d -m 0755 "$COMP_ROOT$LAUNCH_AGENTS_DIR"
     install -m 0644 "$ROOT/launchd/org.nextbsd.xlibre.plist" "$COMP_ROOT$LAUNCH_AGENTS_DIR/"
+    # Compiled keymaps (XKM_OUTPUT_DIR): an empty directory, root's.
+    install -d -m 0755 "$COMP_ROOT$XKM_DIR"
     stage xlibre-xserver
     local x="$DESTDIR$X_PREFIX" mods="$DESTDIR$X_PREFIX/lib/xorg/modules/xlibre-25" xorg m s
     xorg="$x/bin/Xorg"
@@ -812,6 +719,10 @@ build_xlibre_xserver() {
              libxshmfence.so.1 libmd.so; do
         needed_check "$xorg" "$s"
     done
+    needed_resolve "$xorg"
+    for m in libglamoregl.so libexa.so libwfb.so drivers/modesetting_drv.so; do
+        needed_resolve "$mods/$m"
+    done
     not_needed "$xorg" 'libdbus' 'libsystemd' 'libseat' 'libunwind' 'libhal' \
         'libselinux' 'libaudit' 'libbsd' 'liblaunch'
     # -launchd (patch 0005) is built in; liblaunch is dlopen()ed for it only.
@@ -819,21 +730,22 @@ build_xlibre_xserver() {
         grep -q -a -F -e "$s" "$xorg" || fail "Xorg has no $s (patch 0005)"
     done
     note "Xorg: -launchd built in, liblaunch loaded only at run time"
-    launch_agent_check "$DESTDIR$OUTSIDE_PREFIX"
+    launch_agent_check "$DESTDIR$LAUNCH_AGENT"
     no_build_rpath "$xorg"
     # The paths compiled in.
-    for s in /var/log "$X_PREFIX/share/X11/xkb" "$X_PREFIX/bin" \
-             "$X_PREFIX/lib/xorg/modules" /var/run/ built-ins; do
+    for s in /var/log "$X_PREFIX/bin" "$X_PREFIX/lib/xorg/modules" "$XKM_DIR/" built-ins; do
         grep -q -a -F "$s" "$xorg" || fail "Xorg does not name $s"
     done
-    note "Xorg: logs /var/log, XKB $X_PREFIX/share/X11/xkb, xkbcomp in $X_PREFIX/bin, modules $X_PREFIX/lib/xorg/modules"
+    xkb_path_check "$xorg" Xorg
+    [ -d "$DESTDIR$XKM_DIR" ] || fail "$XKM_DIR not staged"
+    note "Xorg: logs /var/log, XKB $XKB_DIR, xkbcomp in $X_PREFIX/bin, compiled keymaps $XKM_DIR, modules $X_PREFIX/lib/xorg/modules"
     if grep -a -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$xorg" >/dev/null; then
         fail "Xorg names /usr/local or a build-host path"
     fi
     note "Xorg names neither /usr/local nor a build-host path"
     test -f "$x/include/xorg/xf86.h" || fail "the Xorg SDK (include/xorg) is not staged"
     pc_check xorg-server "$VERSION"
-    [ "$(PKG_CONFIG_LIBDIR="$SYSROOT$X_PREFIX/lib/pkgconfig" pkgconf --variable=moduledir xorg-server)" = "$X_PREFIX/lib/xorg/modules/xlibre-25" ] \
+    [ "$(PKG_CONFIG_LIBDIR="$PKG_LIBDIR" pkgconf --variable=moduledir xorg-server)" = "$X_PREFIX/lib/xorg/modules/xlibre-25" ] \
         || fail "xorg-server.pc: moduledir is not $X_PREFIX/lib/xorg/modules/xlibre-25"
     note "xorg-server.pc: moduledir=$X_PREFIX/lib/xorg/modules/xlibre-25"
 }
@@ -888,51 +800,11 @@ PY
 XORG_MODULE_DIR="$X_PREFIX/lib/xorg/modules/xlibre-25"
 XORG_CONF_DIR="$X_PREFIX/share/X11/xorg.conf.d"
 
-# linux-input-shim — <linux/input.h>, <linux/input-event-codes.h> and
-# <linux/uinput.h> in /usr/X11/include, each one #include of the base's
-# <dev/evdev/...> header (NextBSD's kernel evdev(4) ABI, the same structures
-# and ioctls as Linux's). NextBSD's own, no upstream source.
-#
-# The installed libevdev.h and mtdev.h include <linux/input.h>, and the
-# evdev, libinput, synaptics (eventcomm) and joystick (evdev backend) drivers
-# include it directly. FreeBSD gets the header from the devel/evdev-proto
-# port, Linux's GPL uapi headers with sed fixes; NextBSD's base already has
-# the BSD-licensed <dev/evdev/input.h> they map to. It ships, rather than
-# staying build-only like mtdev's, so the headers this repo installs are
-# usable as installed: a driver or program built later against /usr/X11
-# (with -I/usr/X11/include) finds it the way FreeBSD's ports find
-# evdev-proto's. Nothing else NextBSD ships has a linux/ include directory.
-build_linux_input_shim() {
-    comp "linux-input-shim [headers, NextBSD]"
-    fresh_dirs linux-input-shim
-    local inc="$COMP_ROOT$X_PREFIX/include/linux" h t="$COMP_BUILD/check.c"
-    install -d "$inc"
-    for h in input input-event-codes uinput; do
-        [ -f "$SYSROOT/usr/include/dev/evdev/$h.h" ] || fail "the sysroot has no dev/evdev/$h.h"
-        printf '%s\n' \
-            "/* NextBSD: <linux/$h.h> is the base kernel's evdev(4) ABI. */" \
-            "#include <dev/evdev/$h.h>" > "$inc/$h.h"
-        chmod 0644 "$inc/$h.h"
-    done
-    stage linux-input-shim
-    # The shim is enough for the installed libevdev.h and mtdev.h, and for
-    # what the drivers use from it.
-    printf '%s\n' '#include <sys/ioctl.h>' '#include <linux/input.h>' \
-        '#include <linux/uinput.h>' '#include <libevdev/libevdev.h>' '#include <mtdev.h>' \
-        'int f(int fd) { struct input_event ev; struct input_absinfo ai;' \
-        '  (void)ev; (void)ai; return ioctl(fd, EVIOCGRAB, 1) + KEY_MAX + ABS_MT_SLOT + BUS_USB; }' > "$t"
-    "$CROSS_BINDIR/clang" --target="$CROSS_TRIPLE" --sysroot="$SYSROOT" -fsyntax-only \
-        -I"$SYSROOT$X_PREFIX/include" -I"$SYSROOT$X_PREFIX/include/libevdev-1.0" "$t" \
-        || fail "libevdev.h and mtdev.h do not compile with the shim"
-    note "libevdev.h and mtdev.h compile against <linux/input.h> -> <dev/evdev/input.h>"
-}
-
 # xdriver_build [configure options...]: an X11Libre driver from its tag
 # archive. The tags ship no configure, so autoreconf runs first, with the
 # server's xorg-server.m4 from the sysroot (util-macros' xorg-macros.m4 is
 # in the toolchain image's aclocal). Then autotools_build with the module
-# directory, the sysroot's /usr/X11/include on the include path (for the
-# linux/ shim), and driver man pages in man4 with the 4x suffix, as FreeBSD
+# directory and driver man pages in man4 with the 4x suffix, as FreeBSD
 # installs them: kbd.4x and mousedrv.4x never shadow the base's own
 # keyboard(4) and mouse(4) pages.
 xdriver_build() {
@@ -940,13 +812,34 @@ xdriver_build() {
     [ -f "$aclocal/xorg-server.m4" ] || fail "no xorg-server.m4 in the sysroot; build xlibre-xserver first"
     (cd "$SRC_DIR" && autoreconf -fi -I "$aclocal")
     autotools_build --with-xorg-module-dir="$XORG_MODULE_DIR" \
-        CPPFLAGS="-I$SYSROOT$X_PREFIX/include" \
         DRIVER_MAN_SUFFIX=4x DRIVER_MAN_DIR='$(mandir)/man4' \
         "$@"
 }
 
+# <linux/input.h> for the evdev, libinput, synaptics (eventcomm) and joystick
+# (evdev backend) drivers is nextbsd-displayserver-support's linux-input-shim
+# (/usr/include/linux-input-shim/linux, the base's <dev/evdev/...> headers),
+# found through pkgconf. evdev and synaptics get it from libevdev.pc, which
+# requires linux-input-shim; libinput and joystick include <linux/input.h>
+# without libevdev, so they are given its cflags.
+#
+# shim_cflags <module>: pkgconf --cflags <module>, checked to carry the
+# shim's include directory.
+shim_cflags() {
+    local got
+    got=$(pkgconf_sysroot --cflags "$1") || fail "pkgconf cannot resolve $1"
+    case " $got " in
+        *" -I$SYSROOT/usr/include/linux-input-shim "*) ;;
+        *) fail "pkgconf --cflags $1 has no -I/usr/include/linux-input-shim: $got" ;;
+    esac
+    note "pkgconf --cflags $1: the input shim (/usr/include/linux-input-shim)" >&2
+    echo "$got"
+}
+
 # drv_check <path under the module dir> [needed...]: a staged driver module
-# links each <needed> library, has no SONAME other than its own file name
+# links each <needed> library, each library it links resolves in the sysroot
+# (needed_resolve; libinput, libevdev, mtdev and libudev from /usr/lib), has
+# no SONAME other than its own file name
 # (libtool's -module -avoid-version), no build-host RPATH, and doesn't link
 # the server.
 drv_check() {
@@ -954,6 +847,7 @@ drv_check() {
     shift
     test -f "$m" || fail "module $(basename "$m") not staged in $XORG_MODULE_DIR"
     for n in "$@"; do needed_check "$m" "$n"; done
+    needed_resolve "$m"
     so=$("$CROSS_BINDIR/llvm-readelf" -d "$m" | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')
     [ -z "$so" ] || [ "$so" = "$(basename "$m")" ] || fail "$(basename "$m") has SONAME $so"
     not_needed "$m" 'Xorg' 'libdbus' 'libsystemd' 'libhal'
@@ -979,7 +873,10 @@ build_xf86_input_libinput() {
     comp "xf86-input-libinput [autotools cross]"
     fresh_dirs xf86-input-libinput
     fetch xf86-input-libinput
-    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" --with-xorg-conf-dir="$XORG_CONF_DIR"
+    local shim
+    shim=$(shim_cflags linux-input-shim)
+    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" --with-xorg-conf-dir="$XORG_CONF_DIR" \
+        CPPFLAGS="$shim"
     stage xf86-input-libinput
     local x="$DESTDIR$X_PREFIX"
     drv_check input/libinput_drv.so libinput.so.10
@@ -990,7 +887,9 @@ build_xf86_input_libinput() {
 }
 
 # xf86-input-evdev 25.0.0 — the older evdev(4) driver, for an xorg.conf that
-# names it. libevdev, mtdev and libudev (libudev-devd): FreeBSD's port hides
+# names it. libevdev, mtdev and libudev (libudev-devd), all from
+# nextbsd-displayserver-support; <linux/input.h> comes with libevdev.pc's
+# cflags (shim_cflags). FreeBSD's port hides
 # libudev from configure and leaves the udev_* calls to resolve against
 # Xorg's; here the module links libudev.so.0 itself. 10-evdev.conf ships, as
 # in FreeBSD: it sorts before 40-libinput.conf, so libinput still gets the
@@ -1000,6 +899,7 @@ build_xf86_input_evdev() {
     comp "xf86-input-evdev [autotools cross]"
     fresh_dirs xf86-input-evdev
     fetch xf86-input-evdev
+    shim_cflags libevdev >/dev/null
     xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" --with-xorg-conf-dir="$XORG_CONF_DIR"
     stage xf86-input-evdev
     local x="$DESTDIR$X_PREFIX"
@@ -1012,14 +912,16 @@ build_xf86_input_evdev() {
 
 # xf86-input-joystick 25.0.0 — joysticks as pointers. Two backends: the BSD
 # one on /dev/uhid* through the base's libusbhid, and evdev on
-# /dev/input/event* (enabled by the linux/ shim; FreeBSD's port builds only
+# /dev/input/event* (enabled by linux-input-shim; FreeBSD's port builds only
 # the first). There is no linux/joystick.h, so no Linux joystick backend. No
 # patches.
 build_xf86_input_joystick() {
     comp "xf86-input-joystick [autotools cross]"
     fresh_dirs xf86-input-joystick
     fetch xf86-input-joystick
-    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg"
+    local shim
+    shim=$(shim_cflags linux-input-shim)
+    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" CPPFLAGS="$shim"
     stage xf86-input-joystick
     local x="$DESTDIR$X_PREFIX"
     config_has BSD_BACKEND EVDEV_BACKEND
@@ -1075,6 +977,7 @@ build_xf86_input_synaptics() {
     comp "xf86-input-synaptics [autotools cross]"
     fresh_dirs xf86-input-synaptics
     fetch xf86-input-synaptics
+    shim_cflags libevdev >/dev/null
     xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" --with-xorg-conf-dir="$XORG_CONF_DIR" \
         BUILD_EVENTCOMM=yes
     rm -f "$COMP_ROOT$XORG_CONF_DIR/70-synaptics.conf"
@@ -1160,25 +1063,16 @@ build_xf86_video_vesa() {
 # =============================================================================
 
 # tool_check <prog> <needed>...: /usr/X11/bin/<prog> and its man page are
-# staged; it links each <needed>; every library it links is in /usr/X11/lib
-# (nextbsd-xlibs, nextbsd-mesa, this repo) or the base (/lib, /usr/lib); it has
-# no build-host RPATH; and neither it nor its man page names /usr/local or a
-# build-host path.
+# staged; it links each <needed>; every library it links resolves in the
+# sysroot (needed_resolve); it has no build-host RPATH; and neither it nor its
+# man page names /usr/local or a build-host path.
 tool_check() {
-    local prog="$1" bin="$DESTDIR$X_PREFIX/bin/$1" man="$DESTDIR$X_PREFIX/share/man/man1/$1.1" n lib
+    local prog="$1" bin="$DESTDIR$X_PREFIX/bin/$1" man="$DESTDIR$X_PREFIX/share/man/man1/$1.1" n
     shift
     test -x "$bin" || fail "$prog not staged in $X_PREFIX/bin"
     test -f "$man" || fail "$prog.1 not staged in $X_PREFIX/share/man/man1"
     for n in "$@"; do needed_check "$bin" "$n"; done
-    for lib in $("$CROSS_BINDIR/llvm-readelf" -d "$bin" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
-        if [ -e "$SYSROOT$X_PREFIX/lib/$lib" ]; then
-            note "$prog: $lib in $X_PREFIX/lib"
-        elif [ -e "$SYSROOT/lib/$lib" ] || [ -e "$SYSROOT/usr/lib/$lib" ]; then
-            note "$prog: $lib in the base"
-        else
-            fail "$prog links $lib, which is neither in $X_PREFIX/lib nor in the base"
-        fi
-    done
+    needed_resolve "$bin"
     no_build_rpath "$bin"
     if grep -l -a -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$bin" "$man"; then
         fail "$prog or its man page names /usr/local or a build-host path"
@@ -1265,17 +1159,15 @@ build_xset() {
 }
 
 # setxkbmap 1.3.5 — sets the XKB keymap (the Keyboard settings use it). meson.
-# Its XKB config root is $X_PREFIX/share/X11/xkb, as for xkbcomp and the server.
+# Its XKB config root is /usr/share/X11/xkb, as for xkbcomp and the server.
 build_setxkbmap() {
     comp "setxkbmap [meson cross]"
     fresh_dirs setxkbmap
     fetch setxkbmap
-    meson_build -Dxkb-config-root="$X_PREFIX/share/X11/xkb"
+    meson_build -Dxkb-config-root="$XKB_DIR"
     stage setxkbmap
     tool_check setxkbmap libX11.so.6 libxkbfile.so.1 libXrandr.so.2
-    grep -q -a -F "$X_PREFIX/share/X11/xkb" "$DESTDIR$X_PREFIX/bin/setxkbmap" \
-        || fail "setxkbmap does not name $X_PREFIX/share/X11/xkb"
-    note "setxkbmap XKB config root: $X_PREFIX/share/X11/xkb"
+    xkb_path_check "$DESTDIR$X_PREFIX/bin/setxkbmap" setxkbmap
 }
 
 # xinput 1.6.4 — lists input devices and sets their properties (the Mouse
@@ -1313,19 +1205,12 @@ build_xrandr() {
 # patches/<name>/ with a series file, and add <name> here, one per line, in
 # build order.
 COMPONENTS="
-    epoll-shim
     khronos-headers
     libepoxy
     libxcvt
-    xkeyboard-config
     xkbcomp
-    libudev-devd
-    libevdev
-    mtdev
-    libinput
     libpciaccess
     xlibre-xserver
-    linux-input-shim
     xf86-input-libinput
     xf86-input-evdev
     xf86-input-joystick
@@ -1355,6 +1240,7 @@ fi
 
 echo "nextbsd-xlibre: building [$(echo $COMPONENTS)] for $T/$TA into $DESTDIR$X_PREFIX"
 mkdir -p "$DESTDIR"
+check_displayserver_support
 base_list
 for c in $COMPONENTS; do
     "build_$(printf '%s' "$c" | tr - _)"
