@@ -1,0 +1,12 @@
+# patches/xf86-input-synaptics/series: applied in order with patch -p1.
+#
+# FreeBSD's port (x11-drivers/xlibre-xf86-input-synaptics/files, ports commit
+# efd79beed9) carries 3 patches for the 25.0.0 tag (E23 D11). All 3 are
+# carried, unchanged apart from the -p1 paths and the DEP-3 header.
+0001-configure.ac-no-m4-macro-directory.patch
+0002-Makefile.am-no-m4-macro-directory.patch
+0003-eventcomm.h-build-the-evdev-backend-on-FreeBSD.patch
+#
+# Not carried: nothing. The port's EVDEV option (on by default) is
+# BUILD_EVENTCOMM=yes in configure's environment, which build-xlibre.sh
+# passes too.

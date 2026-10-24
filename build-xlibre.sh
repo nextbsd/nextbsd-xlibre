@@ -9,8 +9,8 @@
 # libraries (epoll-shim, libepoxy, libxcvt), the XKB keymap data and compiler
 # (xkeyboard-config, xkbcomp), the input stack (libudev-devd, libevdev,
 # mtdev, libinput), the XLibre server (libpciaccess, xlibre-xserver with
-# modesetting and glamor) and the X.Org tools (xauth, xinit, xset, setxkbmap,
-# xinput, xrandr); the drivers follow.
+# modesetting and glamor), its input and video drivers, and the X.Org tools
+# (xauth, xinit, xset, setxkbmap, xinput, xrandr).
 #
 # For each component, in COMPONENTS order:
 #   1. fetch:   download the tarball named in sources.lock, refuse it unless
@@ -578,8 +578,10 @@ build_libevdev() {
 # gets it from the devel/evdev-proto port, which is not used here). For the
 # library's own build, a one-line linux/input.h that includes the base's
 # <dev/evdev/input.h> (the same kernel ABI) goes on the include path. It lives
-# in the build directory only; nothing ships it, and mtdev.h is installed
-# unchanged. libinput brings its own linux/input.h for its include of mtdev.h.
+# in the build directory only, and mtdev.h is installed unchanged. libinput
+# brings its own linux/input.h for its include of mtdev.h. The shipped
+# equivalent, for the drivers and anything built later against mtdev.h or
+# libevdev.h, is linux-input-shim (after the server).
 build_mtdev() {
     comp "mtdev [autotools cross]"
     fresh_dirs mtdev
@@ -812,6 +814,284 @@ build_xlibre_xserver() {
 }
 
 # =============================================================================
+# The input and video drivers (nextbsd-xlibre#4, E23 step 12): input libinput,
+# evdev, joystick, keyboard, mouse, synaptics and vmmouse (amd64); video scfb
+# and vesa (amd64), the unaccelerated fallbacks next to modesetting (D9). Each
+# is X11Libre's 25.0.x tag, built with autotools against the server SDK staged
+# above, with FreeBSD's port patches where it has them (D11).
+# =============================================================================
+
+# Where drivers go: the server's ABI module directory (xorg-server.pc's
+# moduledir) and its xorg.conf.d. Given to configure explicitly: the drivers
+# ask pkgconf for them, and with PKG_CONFIG_SYSROOT_DIR set pkgconf answers
+# with the sysroot in front.
+XORG_MODULE_DIR="$X_PREFIX/lib/xorg/modules/xlibre-25"
+XORG_CONF_DIR="$X_PREFIX/share/X11/xorg.conf.d"
+
+# linux-input-shim — <linux/input.h>, <linux/input-event-codes.h> and
+# <linux/uinput.h> in /usr/X11/include, each one #include of the base's
+# <dev/evdev/...> header (NextBSD's kernel evdev(4) ABI, the same structures
+# and ioctls as Linux's). NextBSD's own, no upstream source.
+#
+# The installed libevdev.h and mtdev.h include <linux/input.h>, and the
+# evdev, libinput, synaptics (eventcomm) and joystick (evdev backend) drivers
+# include it directly. FreeBSD gets the header from the devel/evdev-proto
+# port, Linux's GPL uapi headers with sed fixes; NextBSD's base already has
+# the BSD-licensed <dev/evdev/input.h> they map to. It ships, rather than
+# staying build-only like mtdev's, so the headers this repo installs are
+# usable as installed: a driver or program built later against /usr/X11
+# (with -I/usr/X11/include) finds it the way FreeBSD's ports find
+# evdev-proto's. Nothing else NextBSD ships has a linux/ include directory.
+build_linux_input_shim() {
+    comp "linux-input-shim [headers, NextBSD]"
+    fresh_dirs linux-input-shim
+    local inc="$COMP_ROOT$X_PREFIX/include/linux" h t="$COMP_BUILD/check.c"
+    install -d "$inc"
+    for h in input input-event-codes uinput; do
+        [ -f "$SYSROOT/usr/include/dev/evdev/$h.h" ] || fail "the sysroot has no dev/evdev/$h.h"
+        printf '%s\n' \
+            "/* NextBSD: <linux/$h.h> is the base kernel's evdev(4) ABI. */" \
+            "#include <dev/evdev/$h.h>" > "$inc/$h.h"
+        chmod 0644 "$inc/$h.h"
+    done
+    stage linux-input-shim
+    # The shim is enough for the installed libevdev.h and mtdev.h, and for
+    # what the drivers use from it.
+    printf '%s\n' '#include <sys/ioctl.h>' '#include <linux/input.h>' \
+        '#include <linux/uinput.h>' '#include <libevdev/libevdev.h>' '#include <mtdev.h>' \
+        'int f(int fd) { struct input_event ev; struct input_absinfo ai;' \
+        '  (void)ev; (void)ai; return ioctl(fd, EVIOCGRAB, 1) + KEY_MAX + ABS_MT_SLOT + BUS_USB; }' > "$t"
+    "$CROSS_BINDIR/clang" --target="$CROSS_TRIPLE" --sysroot="$SYSROOT" -fsyntax-only \
+        -I"$SYSROOT$X_PREFIX/include" -I"$SYSROOT$X_PREFIX/include/libevdev-1.0" "$t" \
+        || fail "libevdev.h and mtdev.h do not compile with the shim"
+    note "libevdev.h and mtdev.h compile against <linux/input.h> -> <dev/evdev/input.h>"
+}
+
+# xdriver_build [configure options...]: an X11Libre driver from its tag
+# archive. The tags ship no configure, so autoreconf runs first, with the
+# server's xorg-server.m4 from the sysroot (util-macros' xorg-macros.m4 is
+# in the toolchain image's aclocal). Then autotools_build with the module
+# directory, the sysroot's /usr/X11/include on the include path (for the
+# linux/ shim), and driver man pages in man4 with the 4x suffix, as FreeBSD
+# installs them: kbd.4x and mousedrv.4x never shadow the base's own
+# keyboard(4) and mouse(4) pages.
+xdriver_build() {
+    local aclocal="$SYSROOT$X_PREFIX/share/aclocal"
+    [ -f "$aclocal/xorg-server.m4" ] || fail "no xorg-server.m4 in the sysroot; build xlibre-xserver first"
+    (cd "$SRC_DIR" && autoreconf -fi -I "$aclocal")
+    autotools_build --with-xorg-module-dir="$XORG_MODULE_DIR" \
+        CPPFLAGS="-I$SYSROOT$X_PREFIX/include" \
+        DRIVER_MAN_SUFFIX=4x DRIVER_MAN_DIR='$(mandir)/man4' \
+        "$@"
+}
+
+# drv_check <path under the module dir> [needed...]: a staged driver module
+# links each <needed> library, has no SONAME other than its own file name
+# (libtool's -module -avoid-version), no build-host RPATH, and doesn't link
+# the server.
+drv_check() {
+    local m="$DESTDIR$XORG_MODULE_DIR/$1" n so
+    shift
+    test -f "$m" || fail "module $(basename "$m") not staged in $XORG_MODULE_DIR"
+    for n in "$@"; do needed_check "$m" "$n"; done
+    so=$("$CROSS_BINDIR/llvm-readelf" -d "$m" | sed -n 's/.*(SONAME).*\[\(.*\)\]/\1/p')
+    [ -z "$so" ] || [ "$so" = "$(basename "$m")" ] || fail "$(basename "$m") has SONAME $so"
+    not_needed "$m" 'Xorg' 'libdbus' 'libsystemd' 'libhal'
+    no_build_rpath "$m"
+}
+
+# config_has <define>...: the driver's configure turned each on (config.h).
+config_has() {
+    local d
+    for d in "$@"; do
+        grep -q "^#define $d 1" "$COMP_BUILD/config.h" || fail "configure did not define $d"
+        note "config.h: $d"
+    done
+}
+
+# xf86-input-libinput 25.0.1 — the input driver X uses for everything on
+# /dev/input/event* (the server's fallback input driver, and what the Mouse
+# settings' libinput properties talk to, D10). Installs libinput_drv.so,
+# libinput-properties.h and xorg-libinput.pc in the SDK, and
+# 40-libinput.conf, which gives libinput every pointer, keyboard, touchpad,
+# touch screen and tablet on an event node.
+build_xf86_input_libinput() {
+    comp "xf86-input-libinput [autotools cross]"
+    fresh_dirs xf86-input-libinput
+    fetch xf86-input-libinput
+    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" --with-xorg-conf-dir="$XORG_CONF_DIR"
+    stage xf86-input-libinput
+    local x="$DESTDIR$X_PREFIX"
+    drv_check input/libinput_drv.so libinput.so.10
+    test -f "$x/include/xorg/libinput-properties.h" || fail "libinput-properties.h not staged"
+    test -f "$x/share/X11/xorg.conf.d/40-libinput.conf" || fail "40-libinput.conf not staged"
+    test -f "$x/share/man/man4/libinput.4x" || fail "libinput.4x not staged"
+    pc_check xorg-libinput "$VERSION"
+}
+
+# xf86-input-evdev 25.0.0 — the older evdev(4) driver, for an xorg.conf that
+# names it. libevdev, mtdev and libudev (libudev-devd): FreeBSD's port hides
+# libudev from configure and leaves the udev_* calls to resolve against
+# Xorg's; here the module links libudev.so.0 itself. 10-evdev.conf ships, as
+# in FreeBSD: it sorts before 40-libinput.conf, so libinput still gets the
+# devices. FreeBSD's webcamd dependency is not needed for kernel evdev
+# devices. No patches.
+build_xf86_input_evdev() {
+    comp "xf86-input-evdev [autotools cross]"
+    fresh_dirs xf86-input-evdev
+    fetch xf86-input-evdev
+    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" --with-xorg-conf-dir="$XORG_CONF_DIR"
+    stage xf86-input-evdev
+    local x="$DESTDIR$X_PREFIX"
+    config_has HAVE_LIBUDEV
+    drv_check input/evdev_drv.so libevdev.so.2 libmtdev.so.1 libudev.so.0
+    test -f "$x/include/xorg/evdev-properties.h" || fail "evdev-properties.h not staged"
+    test -f "$x/share/X11/xorg.conf.d/10-evdev.conf" || fail "10-evdev.conf not staged"
+    test -f "$x/share/man/man4/evdev.4x" || fail "evdev.4x not staged"
+}
+
+# xf86-input-joystick 25.0.0 — joysticks as pointers. Two backends: the BSD
+# one on /dev/uhid* through the base's libusbhid, and evdev on
+# /dev/input/event* (enabled by the linux/ shim; FreeBSD's port builds only
+# the first). There is no linux/joystick.h, so no Linux joystick backend. No
+# patches.
+build_xf86_input_joystick() {
+    comp "xf86-input-joystick [autotools cross]"
+    fresh_dirs xf86-input-joystick
+    fetch xf86-input-joystick
+    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg"
+    stage xf86-input-joystick
+    local x="$DESTDIR$X_PREFIX"
+    config_has BSD_BACKEND EVDEV_BACKEND
+    ! grep -q '^#define LINUX_BACKEND 1' "$COMP_BUILD/config.h" || fail "the Linux joystick backend was built"
+    drv_check input/joystick_drv.so libusbhid.so
+    test -f "$x/include/xorg/joystick-properties.h" || fail "joystick-properties.h not staged"
+    test -f "$x/share/man/man4/joystick.4x" || fail "joystick.4x not staged"
+}
+
+# xf86-input-keyboard 25.0.0 — kbd_drv.so, the console keyboard driver
+# (syscons/vt(4) and kbdmux), what the server picks when the kernel has no
+# evdev. FreeBSD's 4 patches (patches/xf86-input-keyboard): without them the
+# driver reads the console keymap and crashes the server on vt(4).
+build_xf86_input_keyboard() {
+    comp "xf86-input-keyboard [autotools cross]"
+    fresh_dirs xf86-input-keyboard
+    fetch xf86-input-keyboard
+    xdriver_build
+    stage xf86-input-keyboard
+    drv_check input/kbd_drv.so
+    test -f "$DESTDIR$X_PREFIX/share/man/man4/kbd.4x" || fail "kbd.4x not staged"
+}
+
+# xf86-input-mouse 25.0.0 — mouse_drv.so on /dev/sysmouse, /dev/psm* and
+# /dev/ums*, the fallback when the kernel has no evdev. FreeBSD's 4 patches
+# (about 1,270 lines, patches/xf86-input-mouse). The patched backend calls
+# libusbhid for USB HID devices, and nothing in the build links it (the
+# module would fail on an unresolved hid_* call), so -lusbhid is added.
+build_xf86_input_mouse() {
+    comp "xf86-input-mouse [autotools cross]"
+    fresh_dirs xf86-input-mouse
+    fetch xf86-input-mouse
+    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" LIBS=-lusbhid
+    stage xf86-input-mouse
+    local x="$DESTDIR$X_PREFIX"
+    drv_check input/mouse_drv.so libusbhid.so
+    test -f "$x/include/xorg/xf86-mouse-properties.h" || fail "xf86-mouse-properties.h not staged"
+    test -f "$x/share/man/man4/mousedrv.4x" || fail "mousedrv.4x not staged"
+}
+
+# xf86-input-synaptics 25.0.0 — the older touchpad driver, with synclient
+# and syndaemon (libXi, libXtst). Backends: psmcomm (/dev/psm* with
+# hw.psm.synaptics_support), ps2comm/alpscomm, and eventcomm on
+# /dev/input/event* through libevdev, turned on with BUILD_EVENTCOMM=yes as
+# FreeBSD's port does (its EVDEV option, default on). FreeBSD's 3 patches
+# (patches/xf86-input-synaptics).
+#
+# 70-synaptics.conf is not shipped: it gives every touchpad to synaptics,
+# ahead of 40-libinput.conf, and the Mouse settings need libinput on
+# touchpads (D10). FreeBSD installs synaptics only on request; here it is
+# always present, so it is used only when an xorg.conf names it.
+build_xf86_input_synaptics() {
+    comp "xf86-input-synaptics [autotools cross]"
+    fresh_dirs xf86-input-synaptics
+    fetch xf86-input-synaptics
+    xdriver_build --with-sdkdir="$X_PREFIX/include/xorg" --with-xorg-conf-dir="$XORG_CONF_DIR" \
+        BUILD_EVENTCOMM=yes
+    rm -f "$COMP_ROOT$XORG_CONF_DIR/70-synaptics.conf"
+    stage xf86-input-synaptics
+    local x="$DESTDIR$X_PREFIX" t
+    config_has BUILD_EVENTCOMM BUILD_PSMCOMM BUILD_PS2COMM
+    drv_check input/synaptics_drv.so libevdev.so.2
+    for t in synclient syndaemon; do
+        test -x "$x/bin/$t" || fail "$t not staged"
+        no_build_rpath "$x/bin/$t"
+    done
+    needed_check "$x/bin/synclient" libXi.so.6
+    needed_check "$x/bin/syndaemon" libXtst.so.6
+    test -f "$x/include/xorg/synaptics-properties.h" || fail "synaptics-properties.h not staged"
+    [ ! -e "$x/share/X11/xorg.conf.d/70-synaptics.conf" ] || fail "70-synaptics.conf staged"
+    [ ! -e "$x/share/hal" ] || fail "HAL files staged"
+}
+
+# xf86-input-vmmouse 25.0.0 (amd64 only) — absolute pointer for VMware and
+# QEMU's vmport, through the VMware backdoor I/O port (/dev/io, so X runs as
+# root, as it does). vmmouse_drv.so and vmmouse_detect. HAL's callout and
+# fdi file and the udev rule are not installed, and nor is 50-vmmouse.conf:
+# it matches only the "vmmouse" tag that udev rule sets, so without udev it
+# never applies; an xorg.conf names the driver instead. No patches.
+build_xf86_input_vmmouse() {
+    comp "xf86-input-vmmouse [autotools cross]"
+    if [ "$T" != amd64 ]; then
+        note "amd64 only (E23 D9); nothing to build for $T"
+        return 0
+    fi
+    fresh_dirs xf86-input-vmmouse
+    fetch xf86-input-vmmouse
+    xdriver_build --with-xorg-conf-dir="$XORG_CONF_DIR" --with-udev-rules-dir=no
+    rm -rf "$COMP_ROOT$X_PREFIX/lib/hal" "$COMP_ROOT$X_PREFIX/share/hal" \
+        "$COMP_ROOT$XORG_CONF_DIR/50-vmmouse.conf"
+    stage xf86-input-vmmouse
+    local x="$DESTDIR$X_PREFIX"
+    config_has VMMOUSE_OS_BSD USE_DEV_IO
+    drv_check input/vmmouse_drv.so
+    test -x "$x/bin/vmmouse_detect" || fail "vmmouse_detect not staged"
+    no_build_rpath "$x/bin/vmmouse_detect"
+    [ ! -e "$x/lib/hal" ] && [ ! -e "$x/share/hal" ] && [ ! -e "$x/lib/udev" ] || fail "HAL or udev files staged"
+}
+
+# xf86-video-scfb 25.0.0 — the dumb framebuffer driver on the console's
+# framebuffer (vt(4)'s efifb/vbefb, or a boot-time framebuffer on arm64):
+# no acceleration, the fallback when modesetting has no KMS device. No
+# patches.
+build_xf86_video_scfb() {
+    comp "xf86-video-scfb [autotools cross]"
+    fresh_dirs xf86-video-scfb
+    fetch xf86-video-scfb
+    xdriver_build
+    stage xf86-video-scfb
+    drv_check drivers/scfb_drv.so
+    test -f "$DESTDIR$X_PREFIX/share/man/man4/scfb.4x" || fail "scfb.4x not staged"
+}
+
+# xf86-video-vesa 25.0.0 (amd64 only) — the VESA BIOS driver (int10, vgahw),
+# unaccelerated, for legacy-BIOS machines without KMS. Its pci_* calls resolve
+# against Xorg's libpciaccess, so the module itself links nothing. No
+# patches.
+build_xf86_video_vesa() {
+    comp "xf86-video-vesa [autotools cross]"
+    if [ "$T" != amd64 ]; then
+        note "amd64 only (E23 D9); nothing to build for $T"
+        return 0
+    fi
+    fresh_dirs xf86-video-vesa
+    fetch xf86-video-vesa
+    xdriver_build
+    stage xf86-video-vesa
+    drv_check drivers/vesa_drv.so
+    test -f "$DESTDIR$X_PREFIX/share/man/man4/vesa.4x" || fail "vesa.4x not staged"
+}
+
+# =============================================================================
 # The X.Org tools (nextbsd-xlibre#5, E23 step 13): xauth and xinit (the rest
 # of xlibre-minimal), then xset, setxkbmap, xinput and xrandr, the tools the
 # desktop runs. Each is a program in /usr/X11/bin with its man page in
@@ -985,6 +1265,16 @@ COMPONENTS="
     libinput
     libpciaccess
     xlibre-xserver
+    linux-input-shim
+    xf86-input-libinput
+    xf86-input-evdev
+    xf86-input-joystick
+    xf86-input-keyboard
+    xf86-input-mouse
+    xf86-input-synaptics
+    xf86-input-vmmouse
+    xf86-video-scfb
+    xf86-video-vesa
     xauth
     xinit
     xset

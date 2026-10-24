@@ -34,6 +34,16 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `setxkbmap` | X.Org, `xorg/app/setxkbmap` | 1.3.5 | HPND (`COPYING`) |
 | `xinput` | X.Org, `xorg/app/xinput` | 1.6.4 | HPND / MIT-style, per file (`COPYING`) |
 | `xrandr` | X.Org, `xorg/app/xrandr` | 1.5.4 | HPND-sell-variant (`COPYING`) |
+| `xf86-input-libinput` | X11Libre, `X11Libre/xf86-input-libinput` (tag `xlibre-xf86-input-libinput-25.0.1`) | 25.0.1 | MIT/X11-style, per file (`COPYING`) |
+| `xf86-input-evdev` | X11Libre, `X11Libre/xf86-input-evdev` (tag `xlibre-xf86-input-evdev-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`) |
+| `xf86-input-joystick` | X11Libre, `X11Libre/xf86-input-joystick` (tag `xlibre-xf86-input-joystick-25.0.0`) | 25.0.0 | MIT/X11-style (`COPYING`) |
+| `xf86-input-keyboard` | X11Libre, `X11Libre/xf86-input-keyboard` (tag `xlibre-xf86-input-keyboard-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`). Patches in `patches/xf86-input-keyboard/` are from FreeBSD's `x11-drivers/xlibre-xf86-input-keyboard` port |
+| `xf86-input-mouse` | X11Libre, `X11Libre/xf86-input-mouse` (tag `xlibre-xf86-input-mouse-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`). Patches in `patches/xf86-input-mouse/` are from FreeBSD's `x11-drivers/xlibre-xf86-input-mouse` port |
+| `xf86-input-synaptics` | X11Libre, `X11Libre/xf86-input-synaptics` (tag `xlibre-xf86-input-synaptics-25.0.0`) | 25.0.0 | MIT (`COPYING`). Patches in `patches/xf86-input-synaptics/` are from FreeBSD's `x11-drivers/xlibre-xf86-input-synaptics` port |
+| `xf86-input-vmmouse` | X11Libre, `X11Libre/xf86-input-vmmouse` (tag `xlibre-xf86-input-vmmouse-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`). amd64 only |
+| `xf86-video-scfb` | X11Libre, `X11Libre/xf86-video-scfb` (tag `xlibre-xf86-video-scfb-25.0.0`) | 25.0.0 | BSD-2-Clause (`COPYING`) |
+| `xf86-video-vesa` | X11Libre, `X11Libre/xf86-video-vesa` (tag `xlibre-xf86-video-vesa-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`). amd64 only |
+| `linux-input-shim` | NextBSD (written by `build-xlibre.sh`) | n/a | BSD-2-Clause (this repo's `LICENSE`); each header only includes the base's BSD-2-Clause `<dev/evdev/…>` header |
 
 Build input that is staged into the sysroot only and is not part of the
 artifact:

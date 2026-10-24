@@ -52,3 +52,19 @@ xset                1.2.6         623837349ea887bc003f01ee2e4b6b8ddd9c2774f632c6
 setxkbmap           1.3.5         360193cecc93f906d8383a8fb5c1f3a7eed35e6ced0e118a64ee56ae13c88cac  https://xorg.freedesktop.org/archive/individual/app/setxkbmap-1.3.5.tar.xz
 xinput              1.6.4         ad04d00d656884d133110eeddc34e9c69e626ebebbbab04dc95791c2907057c8  https://xorg.freedesktop.org/archive/individual/app/xinput-1.6.4.tar.xz
 xrandr              1.5.4         2cafccb2aaf2491a4068676117a0d4f90ab307724b96fffc54cd1da953779400  https://xorg.freedesktop.org/archive/individual/app/xrandr-1.5.4.tar.xz
+
+# ---- the input and video drivers (nextbsd-xlibre#4, E23 step 12), in build order ----
+# X11Libre publishes no driver tarballs: each is the GitHub tag archive of its
+# xlibre-xf86-*-25.0.x tag (E23 D5), as FreeBSD's x11-drivers/xlibre-xf86-*
+# ports fetch them; each SHA-256 matches that port's distinfo. The tags ship
+# no configure: build-xlibre.sh runs autoreconf. vmmouse and vesa are built
+# for amd64 only (E23 D9).
+xf86-input-libinput   25.0.1  d7d9246b6f9a03459a5b603b726aa4e4c0ec8ea669fff2f38976bc81eec96a44  https://github.com/X11Libre/xf86-input-libinput/archive/refs/tags/xlibre-xf86-input-libinput-25.0.1.tar.gz
+xf86-input-evdev      25.0.0  c810cc2d4ba63ee917f40b12e8e09c3e046653badcaace6897561dd3087944e8  https://github.com/X11Libre/xf86-input-evdev/archive/refs/tags/xlibre-xf86-input-evdev-25.0.0.tar.gz
+xf86-input-joystick   25.0.0  af821e11477d8c1bdb08ee2cbadfd556159d42b394699b2c980aa5c818441520  https://github.com/X11Libre/xf86-input-joystick/archive/refs/tags/xlibre-xf86-input-joystick-25.0.0.tar.gz
+xf86-input-keyboard   25.0.0  2bc6d81090ce305645d24724252e8510e832cf252d4e1c53ecf86ff8cf7bdb4e  https://github.com/X11Libre/xf86-input-keyboard/archive/refs/tags/xlibre-xf86-input-keyboard-25.0.0.tar.gz
+xf86-input-mouse      25.0.0  cdec62f256d0e343b0c80cba78a016f2c65073fe2073fd771a220436e3aa669b  https://github.com/X11Libre/xf86-input-mouse/archive/refs/tags/xlibre-xf86-input-mouse-25.0.0.tar.gz
+xf86-input-synaptics  25.0.0  fca6a16ed199505a27dc167e88722b4d45aa5f46e86561d6c6eee3d7a750a107  https://github.com/X11Libre/xf86-input-synaptics/archive/refs/tags/xlibre-xf86-input-synaptics-25.0.0.tar.gz
+xf86-input-vmmouse    25.0.0  41c760d547989d0b120b76e299c2b2611f13fb063838fb6c3fa7fe26eb756fbe  https://github.com/X11Libre/xf86-input-vmmouse/archive/refs/tags/xlibre-xf86-input-vmmouse-25.0.0.tar.gz
+xf86-video-scfb       25.0.0  d487479e3969e258840595ce13ce7aaa2ca6beb6abed0e8a26400078ecd54101  https://github.com/X11Libre/xf86-video-scfb/archive/refs/tags/xlibre-xf86-video-scfb-25.0.0.tar.gz
+xf86-video-vesa       25.0.0  8d517cbd93a42b202cf624e8f56b646aa5efacd44e001f809fea6c5c08f8dfe7  https://github.com/X11Libre/xf86-video-vesa/archive/refs/tags/xlibre-xf86-video-vesa-25.0.0.tar.gz
