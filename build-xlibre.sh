@@ -1073,8 +1073,9 @@ build_xf86_video_scfb() {
     test -f "$DESTDIR$X_PREFIX/share/man/man4/scfb.4x" || fail "scfb.4x not staged"
 }
 
-# xf86-video-vesa 25.0.0 (amd64 only) — the VESA BIOS driver (int10, vgahw,
-# libpciaccess), unaccelerated, for legacy-BIOS machines without KMS. No
+# xf86-video-vesa 25.0.0 (amd64 only) — the VESA BIOS driver (int10, vgahw),
+# unaccelerated, for legacy-BIOS machines without KMS. Its pci_* calls resolve
+# against Xorg's libpciaccess, so the module itself links nothing. No
 # patches.
 build_xf86_video_vesa() {
     comp "xf86-video-vesa [autotools cross]"
@@ -1086,7 +1087,7 @@ build_xf86_video_vesa() {
     fetch xf86-video-vesa
     xdriver_build
     stage xf86-video-vesa
-    drv_check drivers/vesa_drv.so libpciaccess.so.0
+    drv_check drivers/vesa_drv.so
     test -f "$DESTDIR$X_PREFIX/share/man/man4/vesa.4x" || fail "vesa.4x not staged"
 }
 

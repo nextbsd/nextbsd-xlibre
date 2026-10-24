@@ -274,7 +274,7 @@ Driver man pages use the `4x` suffix in `man4`, as FreeBSD installs them, so
 | `synaptics` | the older touchpad driver, with `synclient` and `syndaemon` | psmcomm, ps2comm/alpscomm and eventcomm (`BUILD_EVENTCOMM=yes`, as the port); 3 FreeBSD patches (autoreconf without an `m4/` directory, eventcomm off Linux). **`70-synaptics.conf` is not shipped**: it would take every touchpad from libinput, and the Mouse settings need libinput. Name the driver in an `xorg.conf` to use it |
 | `vmmouse` | amd64 only: VMware's (and QEMU's vmport) absolute pointer, through `/dev/io` | HAL callout and fdi, the udev rule and `50-vmmouse.conf` (it matches only the tag that udev rule sets) are not installed; name the driver in an `xorg.conf` |
 | `scfb` | the console framebuffer, unaccelerated: the fallback when modesetting has no KMS device | |
-| `vesa` | amd64 only: VESA BIOS modes (int10, vgahw, libpciaccess), unaccelerated | |
+| `vesa` | amd64 only: VESA BIOS modes (int10, vgahw), unaccelerated | its `pci_*` calls resolve against `Xorg`'s libpciaccess |
 
 The patches are in `patches/xf86-input-{mouse,keyboard,synaptics}/`, from
 FreeBSD's ports at commit `efd79beed9`, each with its `Origin:`; all 11
