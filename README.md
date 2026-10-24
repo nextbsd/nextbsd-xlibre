@@ -19,9 +19,10 @@ nextbsd-xlibre      the XLibre server, drivers, input stack, xkb, tools   <- thi
 So far it builds the server's support libraries and the XKB keymap data and
 compiler (nextbsd/nextbsd-xlibre#1), the input stack: libudev-devd, libevdev,
 mtdev and libinput with its quirks (nextbsd/nextbsd-xlibre#2), and the XLibre
-server 25.2.2 with modesetting and glamor (nextbsd/nextbsd-xlibre#3). The
-input and video drivers and the tools follow. No fonts are built: the server
-has built-in fonts.
+server 25.2.2 with modesetting and glamor (nextbsd/nextbsd-xlibre#3), and the
+X.Org tools xauth, xinit (with startx), xset, setxkbmap, xinput and xrandr
+(nextbsd/nextbsd-xlibre#5). The input and video drivers follow. No fonts are
+built: the server has built-in fonts.
 
 ## Rules
 
@@ -39,7 +40,8 @@ has built-in fonts.
    (`libepoxy.so.0`, `libxcvt.so.0`): headers in `/usr/X11/include`, libraries
    in `/usr/X11/lib`, `.pc` files in `/usr/X11/lib/pkgconfig`, programs in
    `/usr/X11/bin`. Nothing goes in `/usr/local`, nothing here ships `/etc`
-   (configuration belongs in `nextbsd-overlays`), and nothing may replace a
+   (configuration belongs in `nextbsd-overlays`; `/usr/X11/etc` holds only
+   xinit's default `xinitrc`, see [tools](#the-tools)), and nothing may replace a
    file of the base, of `nextbsd-xlibs` or of `nextbsd-mesa`.
 5. **Only the NextBSD base sysroot and the earlier X repos are linked
    against** (compat's `continuous` base, then the `continuous` artifacts of
@@ -139,6 +141,12 @@ the X client libraries.
 | `libinput` | 1.32.0 | meson | `libinput.so.10`, `libinput.h`, the `libinput` tool and its helpers in `/usr/X11/libexec/libinput`, the quirks database in `/usr/X11/share/libinput` | nextbsd/nextbsd-xlibre#2 |
 | `libpciaccess` | 0.19 | meson | `libpciaccess.so.0`, `pciaccess.h`; `/usr/X11/share/hwdata/pci.ids` links to the base's `/usr/share/misc/pci_vendors` | nextbsd/nextbsd-xlibre#3 |
 | `xlibre-xserver` | 25.2.2 | meson | `/usr/X11/bin/Xorg` (and `X`), its modules in `/usr/X11/lib/xorg/modules/xlibre-25` (modesetting, glamoregl, glx, exa, fbdevhw, int10, shadow, shadowfb, vgahw, wfb), the Xorg SDK (`include/xorg`, `xorg-server.pc`) for the drivers, `protocol.txt`, man pages. 4 FreeBSD port patches (see [server](#the-x-server)) | nextbsd/nextbsd-xlibre#3 |
+| `xauth` | 1.1.5 | autotools | `/usr/X11/bin/xauth`, `xauth.1` | nextbsd/nextbsd-xlibre#5 |
+| `xinit` | 1.4.4 | autotools | `/usr/X11/bin/xinit` and `startx`, `/usr/X11/etc/X11/xinit/xinitrc`, `xinit.1`, `startx.1`. 2 NextBSD patches (see [tools](#the-tools)) | nextbsd/nextbsd-xlibre#5 |
+| `xset` | 1.2.6 | meson | `/usr/X11/bin/xset`, `xset.1` | nextbsd/nextbsd-xlibre#5 |
+| `setxkbmap` | 1.3.5 | meson | `/usr/X11/bin/setxkbmap`, `setxkbmap.1` | nextbsd/nextbsd-xlibre#5 |
+| `xinput` | 1.6.4 | autotools | `/usr/X11/bin/xinput`, `xinput.1` | nextbsd/nextbsd-xlibre#5 |
+| `xrandr` | 1.5.4 | meson | `/usr/X11/bin/xrandr`, `xrandr.1` (not `xkeystone`, a script for the nickle interpreter) | nextbsd/nextbsd-xlibre#5 |
 
 Licences are per component; see `NOTICE.md`. The top-level `LICENSE` (BSD-2)
 covers only this repo's harness.
@@ -200,6 +208,33 @@ the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
 Not carried: the seatd patch (already in 25.2.2), the two suid-wrapper patches
 (no wrapper is built) and `os/utils.c`'s `CLOCK_MONOTONIC_COARSE` → `_FAST`
 (NextBSD's headers already define the one as the other). `series` records why.
+
+### The tools
+
+The latest X.Org releases of the tools in E23's scope, step 13: xauth and
+xinit (the rest of FreeBSD's `xlibre-minimal`), and xset, setxkbmap, xinput
+and xrandr, which the desktop runs. `xdotool` is not an X.Org program and is
+built by `nextbsd-gershwin-support` (E24). Each tool is in `/usr/X11/bin` with
+its man page in `/usr/X11/share/man/man1`, and links only the X client
+libraries in `/usr/X11/lib` (`nextbsd-xlibs`) and the base; the build checks
+each library it links resolves there and that no build-host RPATH is set.
+
+| What | Choice |
+|---|---|
+| X server | `/usr/X11/bin/X`, the server build's link to `Xorg`. startx is configured with it, and xinit's default server is it too (patch `0002`; upstream runs `X` from `$PATH`) |
+| xauth | `/usr/X11/bin/xauth`, the path startx runs. Upstream's startx still ran a bare `xauth` from `$PATH` in two places; patch `0001` makes it use the configured path throughout |
+| xinitrc | the system xinitrc is upstream's sample, `/usr/X11/etc/X11/xinit/xinitrc`, under the server's own configuration directory (`/usr/X11/etc/X11`); startx also looks there for `xserverrc` and `xinitrc.d/*.sh`. It starts twm, xclock and xterm, which NextBSD does not ship, so a session belongs in `~/.xinitrc` (or `$XINITRC`). Installed executable, as upstream does since 1.4.4: startx hands it to xinit as the client program. xinit itself reads only `~/.xinitrc` |
+| Cookies | startx makes the MIT-MAGIC-COOKIE with the base's `/usr/bin/openssl rand -hex 16` |
+| Privilege | no suid wrapper (see [server](#the-x-server)). X is started as root by launchd/loginwindow; `startx` run as root works, and `startx` as a normal user needs root |
+| Not built | xinit's Apple launchd support (XQuartz's `privileged_startx` and LaunchAgents); xset's fontcache and XFree86-Misc extensions (gone from servers; no library in `nextbsd-xlibs`); xrandr's `xkeystone` |
+| `/usr/local` | none: the build checks startx, xinitrc, every tool and its man page name neither `/usr/local` nor a build path (patch `0001` also drops `/usr/local/bin` from a comment in startx's Darwin-only branch) |
+
+`patches/xinit/`:
+
+| Patch | What |
+|---|---|
+| `0001` startx | runs xauth as `"$xauth"` (`/usr/X11/bin/xauth`) everywhere, not a bare `xauth` from `$PATH` for the server's cookie file and the `xauth list` lookup |
+| `0002` xinit | the default server is `BINDIR "/X"` (`/usr/X11/bin/X`) instead of `X` from `$PATH` |
 
 ### libepoxy and Mesa
 

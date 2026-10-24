@@ -28,6 +28,12 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `libinput` | freedesktop.org, `libinput/libinput` | 1.32.0 | MIT (`COPYING`); the quirks data is under the same licence. The Linux UAPI headers it carries in `include/linux/linux` are build input only and not installed |
 | `libpciaccess` | X.Org, `xorg/lib/libpciaccess` | 0.19 | MIT/X11-style, per file (`COPYING`) |
 | `xlibre-xserver` | X11Libre, `X11Libre/xserver` (tag `xlibre-xserver-25.2.2`) | 25.2.2 | MIT/X11-style, per file (`COPYING`). Patches in `patches/xlibre-xserver/` are from FreeBSD's `x11-servers/xlibre-server` port, under the licence of the files they change |
+| `xauth` | X.Org, `xorg/app/xauth` | 1.1.5 | MIT-open-group (`COPYING`) |
+| `xinit` | X.Org, `xorg/app/xinit` | 1.4.4 | MIT-open-group and MIT/X11-style, per file (`COPYING`). NextBSD's patches in `patches/xinit/` are under the licence of the files they change |
+| `xset` | X.Org, `xorg/app/xset` | 1.2.6 | MIT-open-group (`COPYING`) |
+| `setxkbmap` | X.Org, `xorg/app/setxkbmap` | 1.3.5 | HPND (`COPYING`) |
+| `xinput` | X.Org, `xorg/app/xinput` | 1.6.4 | HPND / MIT-style, per file (`COPYING`) |
+| `xrandr` | X.Org, `xorg/app/xrandr` | 1.5.4 | HPND-sell-variant (`COPYING`) |
 
 Build input that is staged into the sysroot only and is not part of the
 artifact:

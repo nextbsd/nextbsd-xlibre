@@ -1,0 +1,21 @@
+Description: xinit: default server is $(bindir)/X, not X from $PATH.
+ With no server given, xinit runs "X" through execvp(), so it needs the
+ server's directory on $PATH. NextBSD's X lives in /usr/X11/bin, which a
+ launchd job's or a user's PATH need not include; startx already passes the
+ full path (configure's --with-xserver). xinit now defaults to BINDIR "/X"
+ (/usr/X11/bin/X), the same path, so plain `xinit` finds the server too.
+ BINDIR is already defined for xinit.c by Makefile.am.
+Origin: NextBSD
+Forwarded: no; upstream deliberately searches $PATH
+---
+--- a/xinit.c
++++ b/xinit.c
+@@ -91,7 +91,7 @@
+ #define TRUE 1
+ #define FALSE 0
+ 
+-static char *default_server = "X";
++static char *default_server = BINDIR "/X";
+ static char *default_display = ":0";        /* choose most efficient */
+ static char *default_client[] = {"xterm", "-geometry", "+1+1", "-n", "login", NULL};
+ static char *serverargv[100];

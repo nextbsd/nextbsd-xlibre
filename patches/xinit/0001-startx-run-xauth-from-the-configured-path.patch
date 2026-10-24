@@ -1,0 +1,42 @@
+Description: startx: run xauth from the configured path everywhere.
+ startx sets xauth="@XAUTH@" (configure's --with-xauth) and uses "$xauth"
+ for most calls, but two still run a bare `xauth` from $PATH: the one that
+ writes the server's authority file and the `xauth list` lookup. With xauth
+ in /usr/X11/bin, which may not be on a user's or a launchd job's PATH,
+ those two fail and X starts with an empty cookie file. Both now use
+ "$xauth", like the rest of the script.
+ Also drops "/usr/local/bin" from a comment in the Darwin-only PATH block,
+ so the installed startx names no /usr/local path at all (the build checks
+ this); no code changes there.
+Origin: NextBSD
+Forwarded: not yet; the bare calls are still in xorg/app/xinit master (2026-08)
+---
+--- a/startx.in
++++ b/startx.in
+@@ -30,7 +30,7 @@
+ if [ "$(uname -s)" = "Darwin" ] ; then
+ 
+     # Check for /usr/bin/X11 and BINDIR in the path, if not add them.
+-    # This allows startx to be placed in a place like /usr/bin or /usr/local/bin
++    # This allows startx to be placed in a place like /usr/bin
+     # and people may use X without changing their PATH.
+     # Note that we put our own bin directory at the front of the path, and
+     # the standard system path at the back, since if you are using the Xorg
+@@ -285,7 +285,7 @@
+     # create a file with auth information for the server. ':0' is a dummy.
+     xserverauthfile="$HOME/.serverauth.$$"
+     trap "rm -f '$xserverauthfile'" HUP INT QUIT ILL TRAP BUS TERM
+-    xauth -q -f "$xserverauthfile" << EOF
++    "$xauth" -q -f "$xserverauthfile" << EOF
+ add :$dummy . $mcookie
+ EOF
+ 
+@@ -303,7 +303,7 @@
+     # if '$displayname' already exists do not overwrite it as another
+     # server may need it. Add them to the '$xserverauthfile' instead.
+     for displayname in $authdisplay $hostname$authdisplay; do
+-        authcookie=$(xauth list "$displayname" \
++        authcookie=$("$xauth" list "$displayname" \
+         | sed -n 's/.*'"$displayname"'[[:space:]*].*[[:space:]*]//p' 2>/dev/null);
+         if [ "z${authcookie}" = "z" ] ; then
+             "$xauth" -q << EOF
