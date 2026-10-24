@@ -959,7 +959,9 @@ build_xrandr() {
     meson_build
     rm -f "$COMP_ROOT$X_PREFIX/bin/xkeystone"
     stage xrandr
-    tool_check xrandr libX11.so.6 libXrandr.so.2 libXrender.so.1
+    # libXrender is a build dependency only: meson links --as-needed and
+    # xrandr calls none of its functions, so it is not in DT_NEEDED.
+    tool_check xrandr libX11.so.6 libXrandr.so.2
     [ ! -e "$DESTDIR$X_PREFIX/bin/xkeystone" ] || fail "xkeystone staged"
 }
 
