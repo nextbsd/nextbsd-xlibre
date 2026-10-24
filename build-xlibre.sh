@@ -7,8 +7,9 @@
 # onwards) for ONE architecture, from pinned upstream release tarballs, into
 # the /usr/X11 prefix with upstream sonames. So far: the server's support
 # libraries (epoll-shim, libepoxy, libxcvt), the XKB keymap data and compiler
-# (xkeyboard-config, xkbcomp) and the input stack (libudev-devd, libevdev,
-# mtdev, libinput); the server, its drivers and the tools follow.
+# (xkeyboard-config, xkbcomp), the input stack (libudev-devd, libevdev,
+# mtdev, libinput) and the XLibre server (libpciaccess, xlibre-xserver with
+# modesetting and glamor); the drivers and the tools follow.
 #
 # For each component, in COMPONENTS order:
 #   1. fetch:   download the tarball named in sources.lock, refuse it unless
@@ -26,15 +27,17 @@
 # Upstream build systems are used as they are, with NextBSD's options; nothing
 # is rewritten as a hand-made makefile. Nothing here uses FreeBSD packages, the
 # ports tree or ports tools, and nothing links against nextbsd-userland: the
-# inputs are sources.lock, the NextBSD base (compat) sysroot and nextbsd-xlibs'
-# `continuous` artifact (the X client libraries, pixman, libxkbfile) on top.
+# inputs are sources.lock, the NextBSD base (compat) sysroot, and nextbsd-xlibs'
+# (the X client libraries, libdrm, pixman, libxkbfile) and nextbsd-mesa's
+# (libglvnd, Mesa's GL/EGL/GBM) `continuous` artifacts on top.
 #
 # EXECUTION CONTEXT (set up by CI before this runs)
 #   Inside the nextbsd-kernel-toolchain container (pinned clang/lld 19.1.7 in
 #   $CROSS_BINDIR, meson, ninja, cmake, pkgconf, autotools, util-macros,
-#   python3, perl, bison), with compat's `continuous` base and nextbsd-xlibs'
-#   `continuous` artifact extracted into $SYSROOT. $SYSROOT is scratch: this
-#   script installs every component into its /usr/X11 as it goes.
+#   python3, perl, bison), with compat's `continuous` base, then nextbsd-xlibs'
+#   and nextbsd-mesa's `continuous` artifacts, extracted into $SYSROOT.
+#   $SYSROOT is scratch: this script installs every component into its
+#   /usr/X11 as it goes.
 #
 # USAGE
 #   ./build-xlibre.sh              every component, in COMPONENTS order
@@ -261,10 +264,11 @@ cmake_build() {
 }
 
 # The files already in the sysroot before this script installs anything: the
-# compat base and nextbsd-xlibs' /usr/X11. Listed while the sysroot holds none
-# of this repo's files (epoll-shim's header, the first component's, is the
-# marker), so stage can refuse a component that would overwrite a base or
-# nextbsd-xlibs file. A later partial run reuses the list.
+# compat base and the /usr/X11 of nextbsd-xlibs and nextbsd-mesa. Listed while
+# the sysroot holds none of this repo's files (epoll-shim's header, the first
+# component's, is the marker), so stage can refuse a component that would
+# overwrite a base, nextbsd-xlibs or nextbsd-mesa file. A later partial run
+# reuses the list.
 base_list() {
     BASE_LIST="$BUILD/base-files-$T.list"
     mkdir -p "$BUILD"
@@ -324,7 +328,7 @@ stage() {
     done
     find "$x" -type d -empty -delete
     clash=$(cd "$COMP_ROOT" && find . ! -type d | sed 's#^\./##' | LC_ALL=C sort | LC_ALL=C comm -12 - "$BASE_LIST")
-    [ -z "$clash" ] || fail "$name would replace files of the NextBSD base or nextbsd-xlibs: $clash"
+    [ -z "$clash" ] || fail "$name would replace files of the NextBSD base, nextbsd-xlibs or nextbsd-mesa: $clash"
     (cd "$COMP_ROOT" && tar -cf - .) | (cd "$SYSROOT" && tar -xf -)
     if [ "$where" = sysroot-only ]; then
         note "staged $(cd "$COMP_ROOT" && find . ! -type d | wc -l) files (sysroot only, not in the artifact)"
@@ -423,8 +427,9 @@ build_khronos_headers() {
 # libEGL.so.1 at run time, so Mesa (nextbsd-mesa) is not needed to build it.
 # The dispatch tables are generated from the Khronos XML registry it bundles;
 # the only outside headers are EGL/eglplatform.h and KHR/khrplatform.h
-# (khronos-headers above) and Xlib's (nextbsd-xlibs). With no gl.pc or egl.pc
-# in the sysroot, epoxy.pc has no Requires.private on them.
+# (nextbsd-mesa's, or khronos-headers above) and Xlib's (nextbsd-xlibs). CI
+# stages nextbsd-mesa first, so its gl.pc and egl.pc are found and epoxy.pc
+# lists them in Requires.private; without them it lists none.
 build_libepoxy() {
     comp "libepoxy [meson cross]"
     fresh_dirs libepoxy
@@ -646,6 +651,166 @@ build_libinput() {
 }
 
 # =============================================================================
+# The X server (nextbsd-xlibre#3, E23 step 11): libpciaccess, then the XLibre
+# server with modesetting and glamor (D9) and FreeBSD's server patches (D11).
+# Mesa (libGL, libEGL, libgbm, dri.pc) comes from nextbsd-mesa's artifact,
+# staged into the sysroot by CI.
+# =============================================================================
+
+# libpciaccess 0.19 — PCI bus access for the server (and, later, the vesa
+# driver). meson. FreeBSD's backend (/dev/pci) is picked by host_machine.
+#
+# Device and vendor names come from a pci.ids file in -Dpci-ids, by default
+# /usr/X11/share/hwdata. NextBSD's base already has the PCI ID Project's
+# database as /usr/share/misc/pci_vendors (the same file format), so rather
+# than ship a second copy, /usr/X11/share/hwdata/pci.ids is a link to it.
+# Names only show up in logs and scanpci; nothing breaks without them. No
+# zlib (the database is not compressed); scanpci is not installed.
+build_libpciaccess() {
+    comp "libpciaccess [meson cross]"
+    fresh_dirs libpciaccess
+    fetch libpciaccess
+    meson_build -Dpci-ids=hwdata -Dzlib=disabled -Dinstall-scanpci=false \
+        -Dlinux-rom-fallback=false
+    install -d "$COMP_ROOT$X_PREFIX/share/hwdata"
+    ln -s /usr/share/misc/pci_vendors "$COMP_ROOT$X_PREFIX/share/hwdata/pci.ids"
+    stage libpciaccess
+    local x="$DESTDIR$X_PREFIX"
+    test -f "$x/include/pciaccess.h" || fail "pciaccess.h not staged"
+    so_check libpciaccess.so.0
+    no_build_rpath "$x/lib/libpciaccess.so.0"
+    grep -q -a -F "$X_PREFIX/share/hwdata" "$x/lib/libpciaccess.so.0" \
+        || fail "libpciaccess.so.0 does not name $X_PREFIX/share/hwdata"
+    [ "$(readlink "$x/share/hwdata/pci.ids")" = /usr/share/misc/pci_vendors ] \
+        || fail "$X_PREFIX/share/hwdata/pci.ids does not link to /usr/share/misc/pci_vendors"
+    test -f "$SYSROOT/usr/share/misc/pci_vendors" \
+        || note "the sysroot has no /usr/share/misc/pci_vendors (the runtime base does)"
+    note "$X_PREFIX/share/hwdata/pci.ids -> /usr/share/misc/pci_vendors"
+    pc_check pciaccess "$VERSION"
+}
+
+# xlibre-xserver 25.2.2 — the XLibre X server: Xorg, its modules and the SDK
+# (headers, xorg-server.pc) the drivers build against. meson. The tag archive
+# is pinned (no release tarballs); patches/xlibre-xserver/ holds the FreeBSD
+# port's server patches that 25.2.2 still needs (D11; series says which and
+# why the others are not carried).
+#
+# Servers: Xorg only. Xvfb, Xnest, Xephyr, Xfbdev, XWin and XQuartz are off;
+# there is no Xwayland in this tree.
+#
+# Graphics (D9): libdrm (nextbsd-xlibs), GBM, EGL and GL (nextbsd-mesa) and
+# libepoxy are all in the sysroot, so glamor, the modesetting driver (meson
+# builds it only with GBM), GLX with DRI, DRI2 and DRI3 are on; meson is told
+# so explicitly, so a missing dependency fails the build instead of quietly
+# dropping them. On amd64 the legacy NVIDIA ScreenRec padding is on, as in
+# FreeBSD's port: NVIDIA's nvidia_drv.so is built for that ABI (E23 D15).
+#
+# Input and devices: the udev config backend and KMS device discovery
+# (platform bus) through libudev-devd (-Dudev=true -Dudev_kms=true, as FreeBSD's
+# port builds it); xf86-input-libinput is the fallback input driver. No HAL,
+# no systemd-logind (it needs D-Bus), no seatd/libseat, no systemd notify, no
+# D-Bus at all.
+#
+# Privilege: no suid wrapper (Xorg.wrap). X is started as root by launchd /
+# loginwindow, as it is today (E23 audit 3), so Xorg is installed as a plain
+# 0755 program in /usr/X11/bin; the build checks it is not set-uid. A user
+# running startx needs root, as with any X without a wrapper; a seat manager
+# would be later work.
+#
+# Paths: modules under /usr/X11/lib/xorg/modules (25.2.2 installs them in its
+# xlibre-25 ABI directory there, which the loader searches first); XKB data
+# /usr/X11/share/X11/xkb, xkbcomp from /usr/X11/bin; compiled keymaps in
+# /var/run (root-only, emptied at boot; the server falls back to /tmp if it
+# can't write there); logs in /var/log (Xorg.N.log); the default font path is
+# the built-in fonts only (NextBSD ships no X core fonts). Configuration is
+# read from /usr/X11/etc/X11 and /etc/X11 as upstream does; none is shipped
+# here (it belongs in nextbsd-overlays). SHA-1 from the base's libmd; no
+# libunwind, DTrace, SELinux, docs or tests; the inputtest driver is off.
+build_xlibre_xserver() {
+    comp "xlibre-xserver [meson cross]"
+    local h
+    for h in gbm.h EGL/egl.h GL/gl.h; do
+        [ -f "$SYSROOT$X_PREFIX/include/$h" ] \
+            || fail "$SYSROOT$X_PREFIX has no nextbsd-mesa ($h); stage its continuous artifact first"
+    done
+    fresh_dirs xlibre-xserver
+    fetch xlibre-xserver
+    local nvidia=false
+    [ "$T" = amd64 ] && nvidia=true
+    meson_build \
+        -Dxorg=true -Dxvfb=false -Dxnest=false -Dxephyr=false -Dxfbdev=false \
+        -Dxwin=false -Dxquartz=false \
+        -Dglamor=true -Dgbm=true -Ddrm=true -Dglx=true -Dglx_dri=true \
+        -Ddri2=true -Ddri3=true -Dpciaccess=true \
+        -Dudev=true -Dudev_kms=true -Dhal=false -Dsystemd_logind=false \
+        -Dsystemd_notify=false -Dseatd_libseat=false -Dsuid_wrapper=false \
+        -Dxselinux=false -Ddtrace=false -Dlibunwind=false \
+        -Ddocs=false -Ddevel-docs=false -Ddocs-pdf=false -Dtests=false \
+        -Dxf86-input-inputtest=false \
+        -Dsha1=libmd -Dxcsecurity=true -Dfallback_input_driver=libinput \
+        -Dlegacy_nvidia_padding="$nvidia" \
+        -Dlog_dir=/var/log -Ddefault_font_path=built-ins \
+        -Dxkb_dir="$X_PREFIX/share/X11/xkb" -Dxkb_bin_dir="$X_PREFIX/bin" \
+        -Dxkb_output_dir=/var/run
+    # 25.2.2 installs upstream's NVIDIA OutputClass snippets: 10-nvidia.conf
+    # and 10-nvidia-modules.conf in share/X11/xorg.conf.d (written for Linux
+    # 6.12+'s nvidia-drm, with a ModulePath of /usr/X11/lib/nvidia/xorg) and
+    # Debian copies in etc/X11/xorg.conf.d. They are removed: FreeBSD's port
+    # ships none of them, and where NVIDIA's driver and its configuration live
+    # is the NVIDIA bundle's business (E23 D15). 10-quirks.conf stays.
+    rm -f "$COMP_ROOT$X_PREFIX"/share/X11/xorg.conf.d/10-nvidia*.conf \
+          "$COMP_ROOT$X_PREFIX"/etc/X11/xorg.conf.d/10-nvidia*.conf.debian
+    stage xlibre-xserver
+    local x="$DESTDIR$X_PREFIX" mods="$DESTDIR$X_PREFIX/lib/xorg/modules/xlibre-25" xorg m s
+    xorg="$x/bin/Xorg"
+    test -x "$xorg" || fail "Xorg not staged"
+    [ ! -u "$xorg" ] || fail "Xorg is set-uid"
+    [ ! -e "$x/libexec/Xorg.wrap" ] && [ ! -e "$x/libexec/Xorg" ] || fail "the suid wrapper was built"
+    [ "$(readlink "$x/bin/X")" = Xorg ] || fail "$X_PREFIX/bin/X does not link to Xorg"
+    test -f "$x/share/X11/xorg.conf.d/10-quirks.conf" || fail "10-quirks.conf not staged"
+    [ ! -e "$x/etc" ] || fail "$X_PREFIX/etc staged: $(cd "$x/etc" && find . ! -type d)"
+    for s in "$x"/share/X11/xorg.conf.d/*; do
+        [ "$(basename "$s")" = 10-quirks.conf ] || fail "unexpected $(basename "$s") in $X_PREFIX/share/X11/xorg.conf.d"
+    done
+    for s in Xvfb Xnest Xephyr Xfbdev Xwayland; do
+        [ ! -e "$x/bin/$s" ] || fail "$s staged; only Xorg is built"
+    done
+    for m in drivers/modesetting_drv.so libglamoregl.so extensions/libglx.so \
+             libwfb.so libshadow.so libshadowfb.so libexa.so \
+             libfbdevhw.so libint10.so libvgahw.so; do
+        test -f "$mods/$m" || fail "module $m not staged in lib/xorg/modules/xlibre-25"
+        no_build_rpath "$mods/$m"
+    done
+    needed_check "$mods/libglamoregl.so" libepoxy.so.0
+    needed_check "$mods/libglamoregl.so" libgbm.so.1
+    needed_check "$mods/extensions/libglx.so" libGL.so.1
+    needed_check "$mods/drivers/modesetting_drv.so" libgbm.so.1
+    for s in libudev.so.0 libpciaccess.so.0 libdrm.so.2 libpixman-1.so.0 \
+             libXfont2.so.2 libxcvt.so.0 libXau.so.6 libXdmcp.so.6 \
+             libxshmfence.so.1 libmd.so; do
+        needed_check "$xorg" "$s"
+    done
+    not_needed "$xorg" 'libdbus' 'libsystemd' 'libseat' 'libunwind' 'libhal' \
+        'libselinux' 'libaudit' 'libbsd'
+    no_build_rpath "$xorg"
+    # The paths compiled in.
+    for s in /var/log "$X_PREFIX/share/X11/xkb" "$X_PREFIX/bin" \
+             "$X_PREFIX/lib/xorg/modules" /var/run/ built-ins; do
+        grep -q -a -F "$s" "$xorg" || fail "Xorg does not name $s"
+    done
+    note "Xorg: logs /var/log, XKB $X_PREFIX/share/X11/xkb, xkbcomp in $X_PREFIX/bin, modules $X_PREFIX/lib/xorg/modules"
+    if grep -a -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$xorg" >/dev/null; then
+        fail "Xorg names /usr/local or a build-host path"
+    fi
+    note "Xorg names neither /usr/local nor a build-host path"
+    test -f "$x/include/xorg/xf86.h" || fail "the Xorg SDK (include/xorg) is not staged"
+    pc_check xorg-server "$VERSION"
+    [ "$(PKG_CONFIG_LIBDIR="$SYSROOT$X_PREFIX/lib/pkgconfig" pkgconf --variable=moduledir xorg-server)" = "$X_PREFIX/lib/xorg/modules/xlibre-25" ] \
+        || fail "xorg-server.pc: moduledir is not $X_PREFIX/lib/xorg/modules/xlibre-25"
+    note "xorg-server.pc: moduledir=$X_PREFIX/lib/xorg/modules/xlibre-25"
+}
+
+# =============================================================================
 # driver
 # =============================================================================
 # Add a component: pin it in sources.lock, write build_<name>() above (hyphens
@@ -663,6 +828,8 @@ COMPONENTS="
     libevdev
     mtdev
     libinput
+    libpciaccess
+    xlibre-xserver
 "
 
 if [ $# -gt 0 ]; then

@@ -1,0 +1,69 @@
+Description: bsd_init: put the console keyboard in K_RAW while X owns the VT.
+ On syscons/vt(4), xf86OpenConsole() switches the VT to KD_GRAPHICS but leaves
+ the keyboard in its cooked mode, so keystrokes meant for X also reach the
+ console's tty (and its special keys). This saves the tty attributes and
+ keyboard mode, sets K_RAW and a raw termios, and restores both in
+ xf86CloseConsole().
+ Rebased for 25.2.2: the declaration of nTty moves next to the "int result"
+ that upstream added at the top of the block; otherwise unchanged.
+Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_bsd_bsd__init.c
+ (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_bsd_bsd__init.c)
+Forwarded: not yet; a candidate for X11Libre (BSD console handling)
+---
+diff --git a/hw/xfree86/os-support/bsd/bsd_init.c b/hw/xfree86/os-support/bsd/bsd_init.c
+index eebd585..1b5487d 100644
+--- a/hw/xfree86/os-support/bsd/bsd_init.c
++++ b/hw/xfree86/os-support/bsd/bsd_init.c
+@@ -48,6 +48,8 @@ static Bool KeepTty = FALSE;
+ #if defined (SYSCONS_SUPPORT) || defined (PCVT_SUPPORT)
+ static int VTnum = -1;
+ static int initialVT = -1;
++static struct termios tty_attr;	/* tty state to restore */
++static int tty_mode;		/* kbd mode to restore */
+ #endif
+ 
+ #ifdef SYSCONS_SUPPORT
+@@ -216,6 +218,7 @@ xf86OpenConsole(void)
+ acquire_vt:
+             if (!xf86Info.ShareVTs) {
+                 int result;
++                struct termios nTty;
+                 /*
+                  * now get the VT
+                  */
+@@ -253,6 +256,26 @@ acquire_vt:
+                 if (ioctl(xf86Info.consoleFd, KDSETMODE, KD_GRAPHICS) < 0) {
+                     FatalError("xf86OpenConsole: KDSETMODE KD_GRAPHICS failed");
+                 }
++
++                tcgetattr(xf86Info.consoleFd, &tty_attr);
++                ioctl(xf86Info.consoleFd, KDGKBMODE, &tty_mode);
++
++                /* disable special keys */
++                if (ioctl(xf86Info.consoleFd, KDSKBMODE, K_RAW) < 0) {
++                    FatalError("xf86OpenConsole: KDSKBMODE K_RAW failed (%s)",
++                               strerror(errno));
++                }
++
++                nTty = tty_attr;
++                nTty.c_iflag = IGNPAR | IGNBRK;
++                nTty.c_oflag = 0;
++                nTty.c_cflag = CREAD | CS8;
++                nTty.c_lflag = 0;
++                nTty.c_cc[VTIME] = 0;
++                nTty.c_cc[VMIN] = 1;
++                cfsetispeed(&nTty, 9600);
++                cfsetospeed(&nTty, 9600);
++                tcsetattr(xf86Info.consoleFd, TCSANOW, &nTty);
+             }
+             else {              /* xf86Info.ShareVTs */
+                 close(xf86Info.consoleFd);
+@@ -535,6 +558,8 @@ xf86CloseConsole(void)
+     case SYSCONS:
+     case PCVT:
+         ioctl(xf86Info.consoleFd, KDSETMODE, KD_TEXT);  /* Back to text mode */
++        ioctl(xf86Info.consoleFd, KDSKBMODE, tty_mode);
++        tcsetattr(xf86Info.consoleFd, TCSANOW, &tty_attr);
+         if (ioctl(xf86Info.consoleFd, VT_GETMODE, &VT) != -1) {
+             VT.mode = VT_AUTO;
+             ioctl(xf86Info.consoleFd, VT_SETMODE, &VT); /* dflt vt handling */

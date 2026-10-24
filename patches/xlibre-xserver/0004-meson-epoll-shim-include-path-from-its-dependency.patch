@@ -1,0 +1,62 @@
+Description: meson: take epoll-shim's include path from its dependency.
+ meson.build adds <epoll-shim prefix>/include/libepoll-shim to every target's
+ include_directories(). In a cross build that is the build host's
+ /usr/X11/include/libepoll-shim, which does not exist (meson refuses it); the
+ path is redundant anyway, since epoll_dep's Cflags already carry the
+ sysroot's. The HAVE_EPOLL_CREATE1 probe is made without epoll-shim, so
+ os/ospoll.c uses its poll() backend on FreeBSD, as FreeBSD's port does
+ (epoll-shim is still used where the server needs it). The USE_DEV_IO hunk
+ for 32-bit arm is inert on NextBSD (amd64 and arm64 only) and is kept to
+ stay identical to the port.
+ Rebased for 25.2.2: the include_directories() hunk moved; otherwise
+ unchanged.
+Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-include_meson.build
+ (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-include_meson.build)
+Forwarded: not yet; the epoll_inc removal is a candidate for X11Libre
+ (it breaks cross builds); the HAVE_EPOLL_CREATE1 change is a FreeBSD choice
+---
+diff --git a/include/meson.build b/include/meson.build
+index 2e4234f..382e743 100644
+--- a/include/meson.build
++++ b/include/meson.build
+@@ -140,7 +140,7 @@ conf_data.set('HAVE_ARC4RANDOM_BUF', cc.has_function('arc4random_buf', dependenc
+ conf_data.set('HAVE_GETRANDOM', cc.has_function('getrandom', prefix: '#include <sys/random.h>') ? '1' : false)
+ conf_data.set('HAVE_BACKTRACE', cc.has_function('backtrace') ? '1' : false)
+ conf_data.set('HAVE_CBRT', cc.has_function('cbrt') ? '1' : false)
+-conf_data.set('HAVE_EPOLL_CREATE1', cc.has_function('epoll_create1',dependencies:epoll_dep, prefix:'#include<sys/epoll.h>') ? '1' : false)
++conf_data.set('HAVE_EPOLL_CREATE1', cc.has_function('epoll_create1') ? '1' : false)
+ conf_data.set('HAVE_GETUID', cc.has_function('getuid') ? '1' : false)
+ conf_data.set('HAVE_GETEUID', cc.has_function('geteuid') ? '1' : false)
+ conf_data.set('HAVE_ISASTREAM', cc.has_function('isastream') ? '1' : false)
+@@ -396,7 +396,7 @@ xorg_data.set('HAVE_SYS_VT_H', cc.has_header('sys/vt.h') ? '1' : false)
+ xorg_data.set('HAVE_MODESETTING_DRIVER', build_modesetting ? '1' : false)
+ 
+ if host_machine.system() == 'freebsd' or host_machine.system() == 'dragonfly'
+-    if host_machine.cpu_family() == 'x86' or host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'aarch64'
++    if host_machine.cpu_family() == 'x86' or host_machine.cpu_family() == 'x86_64' or host_machine.cpu_family() == 'aarch64' or host_machine.cpu_family() == 'arm'
+         xorg_data.set('USE_DEV_IO', '1')
+     endif
+ elif host_machine.system() == 'netbsd' or host_machine.system() == 'openbsd'
+diff --git a/meson.build b/meson.build
+index 7cec15c..08f25c5 100644
+--- a/meson.build
++++ b/meson.build
+@@ -537,10 +537,8 @@ endif
+ 
+ if host_machine.system() in ['freebsd', 'openbsd', 'dragonfly']
+    epoll_dep = dependency('epoll-shim')
+-   epoll_inc = join_paths(epoll_dep.get_variable('prefix'), get_option('includedir'), 'libepoll-shim')
+ else
+    epoll_dep = []
+-   epoll_inc = ''
+ endif
+ 
+ have_eventfd = cc.has_header('sys/eventfd.h', dependencies: epoll_dep)
+@@ -690,7 +688,6 @@ inc = include_directories(
+     'miext/sync',
+     'dix',
+     'include',
+-    epoll_inc,
+ )
+ 
+ build_xselinux = false
