@@ -1,0 +1,13 @@
+# patches/xf86-input-keyboard/series: applied in order with patch -p1.
+#
+# FreeBSD's port (x11-drivers/xlibre-xf86-input-keyboard/files, ports commit
+# efd79beed9) carries 4 patches for the 25.0.0 tag (E23 D11). All 4 are
+# carried, unchanged apart from the -p1 paths and the DEP-3 header. 0003 is
+# the one that matters most: without it the driver crashes the server on
+# vt(4).
+0001-at_scancode-multimedia-and-Sun-keys.patch
+0002-bsd_kbd-raw-mode-for-keyboards-not-on-the-console.patch
+0003-bsd_KbdMap-do-not-query-the-console-keymap.patch
+0004-kbd-close-a-non-console-keyboard-when-it-is-turned-off.patch
+#
+# Not carried: nothing.

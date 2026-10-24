@@ -1,0 +1,25 @@
+Description: bsd_kbd.c: put a keyboard that is not the console's in K_RAW.
+ OpenKeyboard() switches a separately opened keyboard (a kbdmux or ukbd
+ device given with Option "Device") to raw scancodes, as the driver
+ expects. The console keyboard is set up by the server. Unchanged from the
+ port.
+Origin: FreeBSD ports, x11-drivers/xlibre-xf86-input-keyboard/files/patch-src__bsd_kbd.c
+ (https://github.com/freebsd/freebsd-ports/blob/efd79beed9576dd3e354f889a41dabd5890921f4/x11-drivers/xlibre-xf86-input-keyboard/files/patch-src__bsd_kbd.c)
+Forwarded: not yet; a candidate for X11Libre (FreeBSD support)
+---
+diff -ruN a/src/bsd_kbd.c b/src/bsd_kbd.c
+--- a/src/bsd_kbd.c
++++ b/src/bsd_kbd.c
+@@ -234,6 +234,12 @@
+ #endif
+ 	}
+     }
++/*
++ * Switch keyboards which are not attached to console in RAW mode
++ */
++#if defined (SYSCONS_SUPPORT) || defined (PCVT_SUPPORT)
++	ioctl(pInfo->fd, KDSKBMODE, K_RAW);
++#endif
+     return Success;
+ }
+ 

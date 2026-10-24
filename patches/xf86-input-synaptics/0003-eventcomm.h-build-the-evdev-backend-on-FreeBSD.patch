@@ -1,0 +1,29 @@
+Description: eventcomm.h: build the evdev (eventcomm) backend off Linux.
+ <linux/version.h> is Linux-only; elsewhere the BUS_* macros of
+ <linux/input.h> are undefined instead, as they clash with the server's
+ BusType enum. NextBSD's <linux/input.h> is the base's <dev/evdev/input.h>
+ (linux-input-shim). eventcomm is turned on by BUILD_EVENTCOMM=yes, as the
+ port does. Unchanged from the port.
+Origin: FreeBSD ports, x11-drivers/xlibre-xf86-input-synaptics/files/patch-src_eventcomm.h
+ (https://github.com/freebsd/freebsd-ports/blob/efd79beed9576dd3e354f889a41dabd5890921f4/x11-drivers/xlibre-xf86-input-synaptics/files/patch-src_eventcomm.h)
+Forwarded: not yet; a candidate for X11Libre (FreeBSD support)
+---
+diff -ruN a/src/eventcomm.h b/src/eventcomm.h
+--- a/src/eventcomm.h
++++ b/src/eventcomm.h
+@@ -30,7 +30,15 @@
+ #include <xorg-server.h>
+ 
+ #include <linux/input.h>
++#ifdef __linux__
+ #include <linux/version.h>
++#else
++#undef BUS_NONE
++#undef BUS_PCI
++#undef BUS_SBUS
++#undef BUS_PLATFORM
++#undef BUS_last
++#endif
+ #include <xf86Xinput.h>
+ #include "synproto.h"
+ 

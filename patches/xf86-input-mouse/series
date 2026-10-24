@@ -1,0 +1,12 @@
+# patches/xf86-input-mouse/series: applied in order with patch -p1.
+#
+# FreeBSD's port (x11-drivers/xlibre-xf86-input-mouse/files, ports commit
+# efd79beed9) carries 4 patches for the 25.0.0 tag, about 1,270 lines (E23
+# D11). All 4 are carried, unchanged apart from the -p1 paths and the DEP-3
+# header; the backend in 0004 needs the fields of 0001-0003.
+0001-mouse.h-fields-for-the-BSD-backend.patch
+0002-mousePriv.h-sensitivity-moves-to-MouseDevRec.patch
+0003-mouse.c-button-mapping-wheel-and-sensitivity-options.patch
+0004-bsd_mouse-sysmouse-psm-and-usb-HID-on-FreeBSD.patch
+#
+# Not carried: nothing.

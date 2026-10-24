@@ -19,15 +19,17 @@ nextbsd-xlibre      the XLibre server, drivers, input stack, xkb, tools   <- thi
 So far it builds the server's support libraries and the XKB keymap data and
 compiler (nextbsd/nextbsd-xlibre#1), the input stack: libudev-devd, libevdev,
 mtdev and libinput with its quirks (nextbsd/nextbsd-xlibre#2), and the XLibre
-server 25.2.2 with modesetting and glamor (nextbsd/nextbsd-xlibre#3), and the
-X.Org tools xauth, xinit (with startx), xset, setxkbmap, xinput and xrandr
-(nextbsd/nextbsd-xlibre#5). The input and video drivers follow. No fonts are
-built: the server has built-in fonts.
+server 25.2.2 with modesetting and glamor (nextbsd/nextbsd-xlibre#3), its
+input and video drivers (nextbsd/nextbsd-xlibre#4), and the X.Org tools xauth,
+xinit (with startx), xset, setxkbmap, xinput and xrandr
+(nextbsd/nextbsd-xlibre#5). No fonts are built: the server has built-in fonts.
 
 ## Rules
 
 1. **Pinned upstream sources only.** Every component is a release tarball (or
    tag archive) listed in `sources.lock` with its version, URL and SHA-256.
+   The one exception is `linux-input-shim`, three one-line headers written by
+   the build script itself (see [drivers](#drivers)).
    Not FreeBSD packages, not the ports tree or ports tools, not NetBSD's `xsrc`
    or OpenBSD's `xenocara`. Those, and FreeBSD's port patches, may be read as
    references.
@@ -101,7 +103,7 @@ For each component, in `COMPONENTS` order, it:
      `CMAKE_INSTALL_PREFIX=/usr/X11`, shared libraries;
    - **autotools** in `--host=<triple>` mode with
      `CONFIG_SITE=cross/autotools/<arch>.site`, `--with-sysroot`, shared only
-     (for the drivers to come);
+     (mtdev, and the drivers after `autoreconf -fi`);
 4. checks and tidies the install (all of it under `/usr/X11`; nothing that
    would replace a file of the base, of `nextbsd-xlibs` or of `nextbsd-mesa`; no `.la` files or
    docs; `.pc` files moved from `share/pkgconfig` or `libdata/pkgconfig` to
@@ -147,6 +149,16 @@ the X client libraries.
 | `setxkbmap` | 1.3.5 | meson | `/usr/X11/bin/setxkbmap`, `setxkbmap.1` | nextbsd/nextbsd-xlibre#5 |
 | `xinput` | 1.6.4 | autotools | `/usr/X11/bin/xinput`, `xinput.1` | nextbsd/nextbsd-xlibre#5 |
 | `xrandr` | 1.5.4 | meson | `/usr/X11/bin/xrandr`, `xrandr.1` (not `xkeystone`, a script for the nickle interpreter) | nextbsd/nextbsd-xlibre#5 |
+| `linux-input-shim` | NextBSD | headers | `/usr/X11/include/linux/{input,input-event-codes,uinput}.h`, each one `#include` of the base's `<dev/evdev/…>` header (see [drivers](#drivers)) | nextbsd/nextbsd-xlibre#4 |
+| `xf86-input-libinput` | 25.0.1 | autotools | `input/libinput_drv.so`, `libinput-properties.h`, `xorg-libinput.pc`, `40-libinput.conf`, `libinput.4x` | nextbsd/nextbsd-xlibre#4 |
+| `xf86-input-evdev` | 25.0.0 | autotools | `input/evdev_drv.so`, `evdev-properties.h`, `10-evdev.conf`, `evdev.4x` | nextbsd/nextbsd-xlibre#4 |
+| `xf86-input-joystick` | 25.0.0 | autotools | `input/joystick_drv.so` (BSD usbhid and evdev backends), `joystick-properties.h`, `joystick.4x` | nextbsd/nextbsd-xlibre#4 |
+| `xf86-input-keyboard` | 25.0.0 | autotools | `input/kbd_drv.so`, `kbd.4x`. 4 FreeBSD port patches | nextbsd/nextbsd-xlibre#4 |
+| `xf86-input-mouse` | 25.0.0 | autotools | `input/mouse_drv.so`, `xf86-mouse-properties.h`, `mousedrv.4x`. 4 FreeBSD port patches (about 1,270 lines) | nextbsd/nextbsd-xlibre#4 |
+| `xf86-input-synaptics` | 25.0.0 | autotools | `input/synaptics_drv.so` (psmcomm, ps2comm, eventcomm), `synclient`, `syndaemon`, `synaptics-properties.h`, man pages; no `70-synaptics.conf`. 3 FreeBSD port patches | nextbsd/nextbsd-xlibre#4 |
+| `xf86-input-vmmouse` | 25.0.0 | autotools | **amd64 only**: `input/vmmouse_drv.so`, `vmmouse_detect`, man pages | nextbsd/nextbsd-xlibre#4 |
+| `xf86-video-scfb` | 25.0.0 | autotools | `drivers/scfb_drv.so`, `scfb.4x` | nextbsd/nextbsd-xlibre#4 |
+| `xf86-video-vesa` | 25.0.0 | autotools | **amd64 only**: `drivers/vesa_drv.so`, `vesa.4x` | nextbsd/nextbsd-xlibre#4 |
 
 Licences are per component; see `NOTICE.md`. The top-level `LICENSE` (BSD-2)
 covers only this repo's harness.
@@ -173,7 +185,7 @@ step), and the Mouse settings set libinput's properties.
 | epoll | `epoll-shim` from this repo (`-Depoll-dir` points into the sysroot) |
 | Quirks | `/usr/X11/share/libinput/*.quirks`; the local override file is `/usr/X11/etc/libinput/local-overrides.quirks` (not shipped) |
 | udev rules and callouts | removed from the install (as FreeBSD's port does): no udevd runs them |
-| `linux/input.h` | not shipped. `libevdev` and `libinput` build with the copies in their tarballs; `mtdev` builds with a one-line build-only header that includes the base's `<dev/evdev/input.h>` |
+| `linux/input.h` | `libevdev` and `libinput` build with the copies in their tarballs; `mtdev` builds with a one-line build-only header that includes the base's `<dev/evdev/input.h>`. For the drivers and later builds, `linux-input-shim` ships the same header in `/usr/X11/include/linux` (see [drivers](#drivers)) |
 | `kern.evdev.rcpt_mask` | which kernel drivers deliver to evdev. Set in the image by `nextbsd-overlays` (`/etc/sysctl.conf`, applied by `launchctl` at boot), not here |
 
 ### The X server
@@ -188,7 +200,7 @@ the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
 | Devices | the udev config backend and KMS device discovery (the platform bus) through `libudev-devd` (`-Dudev=true -Dudev_kms=true`, as FreeBSD's port); `libinput` is the fallback input driver. PCI through `libpciaccess` |
 | Not built | HAL, systemd-logind, systemd notify, seatd/libseat, D-Bus, SELinux, DTrace, libunwind, docs, tests, the `inputtest` driver |
 | Privilege | **no suid wrapper** (`Xorg.wrap`). X is started as root by launchd/loginwindow, as today, so `Xorg` is a plain 0755 program in `/usr/X11/bin` (the build checks it is not set-uid). `startx` as a normal user needs root; a seat manager is later work |
-| Modules | `/usr/X11/lib/xorg/modules/xlibre-25` (the loader searches it, then `xlibre-25.0` and `/usr/X11/lib/xorg/modules`). Drivers from nextbsd/nextbsd-xlibre#4 install there via `xorg-server.pc`'s `moduledir` |
+| Modules | `/usr/X11/lib/xorg/modules/xlibre-25` (the loader searches it, then `xlibre-25.0` and `/usr/X11/lib/xorg/modules`). The drivers (nextbsd/nextbsd-xlibre#4) install there, `xorg-server.pc`'s `moduledir` (see [drivers](#drivers)) |
 | XKB | rules from `/usr/X11/share/X11/xkb`, `xkbcomp` from `/usr/X11/bin`; compiled keymaps in `/var/run` (root-only, emptied at boot; the server falls back to `/tmp`) |
 | Fonts | default font path `built-ins` only |
 | Log | `/var/log/Xorg.N.log` |
@@ -235,6 +247,52 @@ each library it links resolves there and that no build-host RPATH is set.
 |---|---|
 | `0001` startx | runs xauth as `"$xauth"` (`/usr/X11/bin/xauth`) everywhere, not a bare `xauth` from `$PATH` for the server's cookie file and the `xauth list` lookup |
 | `0002` xinit | the default server is `BINDIR "/X"` (`/usr/X11/bin/X`) instead of `X` from `$PATH` |
+
+### Drivers
+
+X11Libre's driver tags at 25.0.x (E23 D5), from their GitHub tag archives
+(the same files, by SHA-256, that FreeBSD's `x11-drivers/xlibre-xf86-*`
+ports fetch). The tags ship no `configure`, so each is `autoreconf -fi` with
+the staged server's `xorg-server.m4` and the toolchain image's util-macros,
+then built against the server SDK in the sysroot. Modules go in
+`/usr/X11/lib/xorg/modules/xlibre-25/{input,drivers}`, the SDK headers some
+of them install in `/usr/X11/include/xorg`, and `xorg.conf.d` snippets in
+`/usr/X11/share/X11/xorg.conf.d`. The module and configuration directories
+are given to `configure` explicitly: asked of pkgconf with
+`PKG_CONFIG_SYSROOT_DIR` set, they would come back with the sysroot in front.
+Driver man pages use the `4x` suffix in `man4`, as FreeBSD installs them, so
+`kbd.4x` and `mousedrv.4x` don't shadow the base's `keyboard(4)` and
+`mouse(4)`.
+
+| Driver | Role | Notes |
+|---|---|---|
+| `libinput` | the input driver: every pointer, keyboard, touchpad, touch screen and tablet on `/dev/input/event*` (`40-libinput.conf`), and the server's fallback | links `libinput.so.10`; the Mouse settings use its properties (D10) |
+| `evdev` | the older evdev driver, if an `xorg.conf` names it | links `libevdev`, `libmtdev` and `libudev.so.0` itself (FreeBSD's port hides libudev from `configure` and lets the `udev_*` calls resolve against `Xorg`). `10-evdev.conf` sorts before `40-libinput.conf`, so libinput keeps the devices. FreeBSD's `webcamd` dependency isn't needed for kernel evdev devices |
+| `joystick` | joysticks as pointers | BSD backend on `/dev/uhid*` (base `libusbhid`) and evdev backend (FreeBSD's port has only the first) |
+| `keyboard` (`kbd`) | the console keyboard (syscons/vt(4), kbdmux) when the kernel has no evdev | 4 FreeBSD patches: AT multimedia scancodes, `K_RAW` for a non-console keyboard, no `GIO_KEYMAP` query (it crashes the server on vt(4)), close a non-console keyboard on `DEVICE_OFF` |
+| `mouse` | `/dev/sysmouse`, `/dev/psm*`, `/dev/ums*` when the kernel has no evdev | 4 FreeBSD patches, about 1,270 lines, mostly the BSD backend (moused detection, PS/2 models, a USB HID protocol with absolute and touch devices). The patched backend calls `libusbhid` and nothing links it, so it is built with `LIBS=-lusbhid` |
+| `synaptics` | the older touchpad driver, with `synclient` and `syndaemon` | psmcomm, ps2comm/alpscomm and eventcomm (`BUILD_EVENTCOMM=yes`, as the port); 3 FreeBSD patches (autoreconf without an `m4/` directory, eventcomm off Linux). **`70-synaptics.conf` is not shipped**: it would take every touchpad from libinput, and the Mouse settings need libinput. Name the driver in an `xorg.conf` to use it |
+| `vmmouse` | amd64 only: VMware's (and QEMU's vmport) absolute pointer, through `/dev/io` | HAL callout and fdi, the udev rule and `50-vmmouse.conf` (it matches only the tag that udev rule sets) are not installed; name the driver in an `xorg.conf` |
+| `scfb` | the console framebuffer, unaccelerated: the fallback when modesetting has no KMS device | |
+| `vesa` | amd64 only: VESA BIOS modes (int10, vgahw, libpciaccess), unaccelerated | |
+
+The patches are in `patches/xf86-input-{mouse,keyboard,synaptics}/`, from
+FreeBSD's ports at commit `efd79beed9`, each with its `Origin:`; all 11
+apply to the 25.0.0 tags unchanged and are carried. The other drivers have no
+port patches.
+
+**`linux/input.h`.** The installed `libevdev.h` and `mtdev.h` include
+`<linux/input.h>`, and so do the evdev, libinput, synaptics (eventcomm) and
+joystick (evdev backend) drivers. FreeBSD gets it from the `devel/evdev-proto`
+port (Linux's GPL uapi headers, `sed`-fixed for FreeBSD). NextBSD's base
+already has the BSD-licensed `<dev/evdev/input.h>`, `input-event-codes.h` and
+`uinput.h`, the same structures and ioctls, so `linux-input-shim` installs
+`/usr/X11/include/linux/{input,input-event-codes,uinput}.h`, each a single
+`#include` of the base header. It **ships** rather than staying build-only, so
+the headers this repo installs work as installed: a driver or program built
+later with `-I/usr/X11/include` finds it, as FreeBSD's ports find
+evdev-proto's. There is no `linux/joystick.h` or `linux/version.h`. The build
+checks that `libevdev.h` and `mtdev.h` compile against it.
 
 ### libepoxy and Mesa
 

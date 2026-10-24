@@ -1,0 +1,34 @@
+Description: kbd.c: close a keyboard that is not the console's on DEVICE_OFF.
+ Otherwise it can't be opened again when the server resets (a new login
+ through a display manager). The console keyboard's fd belongs to the
+ server and stays open. Unchanged from the port.
+Origin: FreeBSD ports, x11-drivers/xlibre-xf86-input-keyboard/files/patch-src__kbd.c
+ (https://github.com/freebsd/freebsd-ports/blob/efd79beed9576dd3e354f889a41dabd5890921f4/x11-drivers/xlibre-xf86-input-keyboard/files/patch-src__kbd.c)
+Forwarded: not yet; a candidate for X11Libre (FreeBSD support)
+---
+diff -ruN a/src/kbd.c b/src/kbd.c
+--- a/src/kbd.c
++++ b/src/kbd.c
+@@ -22,6 +22,7 @@
+ 
+ #include "xf86.h"
+ #include "atKeynames.h"
++#include "xf86Priv.h"
+ #include "xf86Privstr.h"
+ 
+ #include <X11/extensions/XI.h>
+@@ -379,6 +380,14 @@
+     }
+     pKbd->KbdOff(pInfo, what);
+     device->public.on = FALSE;
++	/*
++	 * Close device file for keyboards which are not attached
++	 * to console, otherwise they can't be opened again after
++	 * relogin when using session manager like xdm.
++	 * X server will take care about console attached keyboards.
++	 */
++	if (pInfo->fd != xf86Info.consoleFd)
++		close(pInfo->fd);
+     break;
+ 
+   default:

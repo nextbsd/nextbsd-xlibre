@@ -1,0 +1,14 @@
+Description: Makefile.am: drop ACLOCAL_AMFLAGS = -I m4 (see 0001).
+ Unchanged from the port.
+Origin: FreeBSD ports, x11-drivers/xlibre-xf86-input-synaptics/files/patch-Makefile.am
+ (https://github.com/freebsd/freebsd-ports/blob/efd79beed9576dd3e354f889a41dabd5890921f4/x11-drivers/xlibre-xf86-input-synaptics/files/patch-Makefile.am)
+Forwarded: not yet; a candidate for X11Libre (FreeBSD support)
+---
+diff -ruN a/Makefile.am b/Makefile.am
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -38,4 +38,3 @@
+ dist-hook: ChangeLog INSTALL
+ 
+ EXTRA_DIST = README.md
+-ACLOCAL_AMFLAGS = -I m4

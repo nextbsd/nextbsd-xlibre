@@ -1,0 +1,18 @@
+Description: configure.ac: drop AC_CONFIG_MACRO_DIRS([m4]).
+ The tag archive has no m4/ directory, and autoreconf fails on the missing
+ macro directory. Unchanged from the port; goes with 0002.
+Origin: FreeBSD ports, x11-drivers/xlibre-xf86-input-synaptics/files/patch-configure.ac
+ (https://github.com/freebsd/freebsd-ports/blob/efd79beed9576dd3e354f889a41dabd5890921f4/x11-drivers/xlibre-xf86-input-synaptics/files/patch-configure.ac)
+Forwarded: not yet; a candidate for X11Libre (FreeBSD support)
+---
+diff -ruN a/configure.ac b/configure.ac
+--- a/configure.ac
++++ b/configure.ac
+@@ -28,7 +28,6 @@
+         [xlibre-xf86-input-synaptics])
+ AC_CONFIG_SRCDIR([Makefile.am])
+ AC_CONFIG_HEADERS([config.h])
+-AC_CONFIG_MACRO_DIRS([m4])
+ AC_CONFIG_AUX_DIR(.)
+ 
+ # Initialize Automake
