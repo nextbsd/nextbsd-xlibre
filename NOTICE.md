@@ -12,7 +12,7 @@ under the licence of the file it changes, and says where it came from in its
 `Origin:` line.
 
 The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
-`build-xlibre.sh`, `sources.lock`, `cross/`, `.github/workflows/`, this
+`build-xlibre.sh`, `sources.lock`, `cross/`, `launchd/`, `.github/workflows/`, this
 `NOTICE.md` and `README.md`.
 
 | Component | Upstream | Version | Licence |
@@ -27,7 +27,7 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `mtdev` | Henrik Rydberg, bitmath.org | 1.1.7 | MIT (`COPYING`) |
 | `libinput` | freedesktop.org, `libinput/libinput` | 1.32.0 | MIT (`COPYING`); the quirks data is under the same licence. The Linux UAPI headers it carries in `include/linux/linux` are build input only and not installed |
 | `libpciaccess` | X.Org, `xorg/lib/libpciaccess` | 0.19 | MIT/X11-style, per file (`COPYING`) |
-| `xlibre-xserver` | X11Libre, `X11Libre/xserver` (tag `xlibre-xserver-25.2.2`) | 25.2.2 | MIT/X11-style, per file (`COPYING`). Patches in `patches/xlibre-xserver/` are from FreeBSD's `x11-servers/xlibre-server` port, under the licence of the files they change |
+| `xlibre-xserver` | X11Libre, `X11Libre/xserver` (tag `xlibre-xserver-25.2.2`) | 25.2.2 | MIT/X11-style, per file (`COPYING`). Patches `0001`–`0004` in `patches/xlibre-xserver/` are from FreeBSD's `x11-servers/xlibre-server` port and `0005` is NextBSD's own, all under the licence of the files they change |
 | `xauth` | X.Org, `xorg/app/xauth` | 1.1.5 | MIT-open-group (`COPYING`) |
 | `xinit` | X.Org, `xorg/app/xinit` | 1.4.4 | MIT-open-group and MIT/X11-style, per file (`COPYING`). NextBSD's patches in `patches/xinit/` are under the licence of the files they change |
 | `xset` | X.Org, `xorg/app/xset` | 1.2.6 | MIT-open-group (`COPYING`) |

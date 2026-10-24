@@ -1,0 +1,207 @@
+Description: os: -launchd <name>, listen on the sockets of a launchd Sockets entry.
+ The XQuartz launch model for any DDX: a launchd job declares a Sockets entry
+ (on NextBSD a per-user LaunchAgent with SecureSocketWithKey = DISPLAY, so
+ launchd makes a socket in a private mkdtemp(3) directory and exports its
+ path as DISPLAY), and launchd starts the server when the first X client
+ connects. With -launchd <name> the server collects that entry's descriptors
+ with launch_activate_socket(3) (liblaunch, nextbsd/nextbsd-userland#447) and
+ adds each with the existing ListenOnOpenFD(), which XQuartz uses for its
+ launchd socket. It then opens no listening sockets of its own and writes no
+ lock file, like XQuartz.
+ .
+ A socket skips X authorization (ListenOnOpenFD's noxauth) only when its
+ directory belongs to the server's user and nobody else can enter it, which
+ is what SecureSocketWithKey creates; any other launchd socket keeps X
+ authorization and the server logs a warning.
+ .
+ liblaunch is dlopen(3)ed only when -launchd is given, so Xorg does not link
+ it and a server started any other way (startx, xinit, a login window) runs
+ exactly as before. Without -launchd nothing changes.
+Origin: NextBSD
+ (nextbsd/nextbsd-xlibre#13; the XQuartz model: hw/xquartz/mach-startup/launchd_fd.c
+ and bundle-main.c, which hand the launchd socket to ListenOnOpenFD)
+Forwarded: not yet; a candidate for X11Libre (launchd socket activation outside XQuartz)
+---
+diff -ruN a/man/Xserver.man b/man/Xserver.man
+--- a/man/Xserver.man
++++ b/man/Xserver.man
+@@ -154,6 +154,17 @@
+ on this file descriptor as a newline-terminated string.  The \-pn option is
+ ignored when using \-displayfd.
+ .TP 8
++.B \-launchd \fIname\fP
++makes the server listen only on the sockets of the launchd(8) job's
++.B Sockets
++entry \fIname\fP, which it collects with launch_activate_socket(3), and not
++create its own; no lock file is written.
++launchd can then start the server when the first client connects.
++A socket in a directory that only the server's user can enter, such as one
++created with
++.BR SecureSocketWithKey ,
++accepts clients without X authorization, as XQuartz's does.
++.TP 8
+ .B \-deferglyphs \fIwhichfonts\fP
+ specifies the types of fonts for which the server should attempt to use
+ deferred glyph loading.  \fIwhichfonts\fP can be all (all fonts),
+diff -ruN a/os/connection.c b/os/connection.c
+--- a/os/connection.c	2026-10-24 18:11:21
++++ b/os/connection.c	2026-10-24 18:12:14
+@@ -87,6 +87,10 @@
+ #endif
+ #ifndef WIN32
+ #include <sys/uio.h>
++#include <sys/un.h>
++#include <dlfcn.h>
++#include <string.h>
++#include <unistd.h>
+ #endif
+ 
+ #include "dix/dix_priv.h"
+@@ -130,6 +134,7 @@
+ 
+ Bool NewOutputPending;          /* not yet attempted to write some new output */
+ Bool NoListenAll;               /* Don't establish any listening sockets */
++const char *LaunchdSocketName;  /* -launchd: listen on launchd's sockets only */
+ 
+ static char dynamic_display[7]; /* display name */
+ Bool PartialNetwork;            /* continue even if unable to bind all addrs */
+@@ -233,6 +238,73 @@
+                                                   &ListenTransConns) >= 0);
+ }
+ 
++#ifndef WIN32
++/* A launchd socket may skip X authorization only when it sits in a directory
++ * that nobody but this server's user can enter, as SecureSocketWithKey's
++ * mkdtemp(3) directory does; XQuartz relies on the same property. */
++static Bool
++LaunchdSocketIsPrivate(int fd)
++{
++    struct sockaddr_un addr;
++    socklen_t len = sizeof(addr);
++    struct stat st;
++    char *slash;
++
++    memset(&addr, 0, sizeof(addr));
++    if (getsockname(fd, (struct sockaddr *) &addr, &len) != 0 ||
++        addr.sun_family != AF_UNIX)
++        return FALSE;
++    addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
++    slash = strrchr(addr.sun_path, '/');
++    if (slash == NULL || slash == addr.sun_path)
++        return FALSE;
++    *slash = '\0';
++    return stat(addr.sun_path, &st) == 0 && S_ISDIR(st.st_mode) &&
++        st.st_uid == geteuid() && (st.st_mode & (S_IRWXG | S_IRWXO)) == 0;
++}
++
++/* -launchd <name>: take the listening sockets of the job's launchd Sockets
++ * entry <name> (launch_activate_socket(3)) instead of creating our own, so
++ * launchd can start the server when the first client connects (the XQuartz
++ * launch model). liblaunch is loaded only here, so a server started any other
++ * way neither links nor loads it. */
++static void
++ListenOnLaunchdSockets(void)
++{
++    int (*activate)(const char *, int **, size_t *);
++    void *handle;
++    int *fds = NULL;
++    size_t cnt = 0, i;
++    int err;
++
++    handle = dlopen("liblaunch.so.1", RTLD_NOW | RTLD_LOCAL);
++    if (handle == NULL)
++        handle = dlopen("/usr/lib/system/liblaunch.so.1", RTLD_NOW | RTLD_LOCAL);
++    if (handle == NULL)
++        FatalError("-launchd: cannot load liblaunch: %s\n", dlerror());
++    activate = (int (*)(const char *, int **, size_t *))
++        dlsym(handle, "launch_activate_socket");
++    if (activate == NULL)
++        FatalError("-launchd: liblaunch has no launch_activate_socket\n");
++    err = activate(LaunchdSocketName, &fds, &cnt);
++    if (err != 0)
++        FatalError("-launchd: no launchd sockets named \"%s\": %s\n",
++                   LaunchdSocketName, strerror(err));
++    for (i = 0; i < cnt; i++) {
++        Bool noxauth = LaunchdSocketIsPrivate(fds[i]);
++
++        if (!noxauth)
++            LogMessage(X_WARNING, "launchd socket %d is not in a private "
++                       "directory; X authorization applies to it\n", fds[i]);
++        ListenOnOpenFD(fds[i], noxauth);
++    }
++    free(fds);
++    if (ListenTransCount == 0)
++        FatalError("-launchd: could not listen on the sockets named \"%s\"\n",
++                   LaunchdSocketName);
++}
++#endif
++
+ /*****************
+  * CreateWellKnownSockets
+  *    At initialization, create the sockets to listen on for new clients.
+@@ -247,6 +319,14 @@
+     /* display is initialized to "0" by main(). It is then set to the display
+      * number if specified on the command line. */
+ 
++#ifndef WIN32
++    if (LaunchdSocketName) {
++        ListenTransCount = 0;
++        ListenOnLaunchdSockets();
++        goto listening;
++    }
++#endif
++
+     if (NoListenAll) {
+         ListenTransCount = 0;
+     }
+@@ -296,6 +376,9 @@
+         FatalError
+             ("Cannot establish any listening sockets - Make sure an X server isn't already running");
+ 
++#ifndef WIN32
++ listening:
++#endif
+ #if !defined(WIN32)
+     OsSignal(SIGPIPE, SIG_IGN);
+ #endif
+diff -ruN a/os/osdep.h b/os/osdep.h
+--- a/os/osdep.h
++++ b/os/osdep.h
+@@ -191,6 +191,7 @@
+ 
+ extern Bool CoreDump;
+ extern Bool NoListenAll;
++extern const char *LaunchdSocketName;
+ 
+ /*
+  * This function reallocarray(3)s passed buffer, terminating the server if
+diff -ruN a/os/utils.c b/os/utils.c
+--- a/os/utils.c	2026-10-24 18:11:21
++++ b/os/utils.c	2026-10-24 18:11:42
+@@ -278,6 +278,9 @@
+     ErrorF("-nocursor              disable the cursor\n");
+     ErrorF("-core                  generate core dump on fatal error\n");
+     ErrorF("-displayfd fd          file descriptor to write display number to when ready to connect\n");
++#ifndef WIN32
++    ErrorF("-launchd name          listen only on launchd's sockets for the Sockets entry name\n");
++#endif
+     ErrorF("-dpi int               screen resolution in dots per inch\n");
+ #ifdef DPMSExtension
+     ErrorF("-dpms                  disables VESA DPMS monitor control\n");
+@@ -505,6 +508,16 @@
+             else
+                 UseMsg();
+         }
++#ifndef WIN32
++        else if (strcmp(argv[i], "-launchd") == 0) {
++            if (++i < argc) {
++                LaunchdSocketName = argv[i];
++                DisableServerLock();
++            }
++            else
++                UseMsg();
++        }
++#endif
+         else if (strcmp(argv[i], "-displayfd") == 0) {
+             if (++i < argc) {
+                 displayfd = atoi(argv[i]);
