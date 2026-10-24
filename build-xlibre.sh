@@ -272,7 +272,8 @@ base_list() {
 #   - libtool .la files and docs are dropped (man pages are kept);
 #   - .pc files from share/pkgconfig and libdata/pkgconfig move to
 #     lib/pkgconfig;
-#   - no .pc file may name /usr/local or a build-host path, and no CMake
+#   - a .pc file has prefix=/usr/X11 (or, data-only, sets no path outside
+#     it); none may name /usr/local or a build-host path, and no CMake
 #     package file a build-host path.
 # With sysroot-only, the component is build input for later components and is
 # left out of the artifact (khronos-headers).
@@ -293,7 +294,13 @@ stage() {
     done
     for f in "$x"/lib/pkgconfig/*.pc; do
         [ -e "$f" ] || continue
-        grep -q "^prefix=$X_PREFIX\$" "$f" || fail "$(basename "$f"): prefix is not $X_PREFIX"
+        # A data-only .pc (xkeyboard-config's) has no prefix= line; then
+        # every absolute path it sets must be under the prefix.
+        if grep -q '^prefix=' "$f"; then
+            grep -q "^prefix=$X_PREFIX\$" "$f" || fail "$(basename "$f"): prefix is not $X_PREFIX"
+        elif grep -E '^[A-Za-z_]+=/' "$f" | grep -v -E "^[A-Za-z_]+=$X_PREFIX(/|\$)"; then
+            fail "$(basename "$f"): sets a path outside $X_PREFIX"
+        fi
         if grep -n -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$f"; then
             fail "$(basename "$f") names /usr/local or a build-host path"
         fi
