@@ -1,0 +1,3 @@
+# patches/xinit/series: applied in order with patch -p1.
+0001-startx-run-xauth-from-the-configured-path.patch
+0002-xinit-default-server-from-bindir.patch

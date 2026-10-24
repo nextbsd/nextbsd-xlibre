@@ -8,8 +8,9 @@
 # the /usr/X11 prefix with upstream sonames. So far: the server's support
 # libraries (epoll-shim, libepoxy, libxcvt), the XKB keymap data and compiler
 # (xkeyboard-config, xkbcomp), the input stack (libudev-devd, libevdev,
-# mtdev, libinput) and the XLibre server (libpciaccess, xlibre-xserver with
-# modesetting and glamor); the drivers and the tools follow.
+# mtdev, libinput), the XLibre server (libpciaccess, xlibre-xserver with
+# modesetting and glamor) and the X.Org tools (xauth, xinit, xset, setxkbmap,
+# xinput, xrandr); the drivers follow.
 #
 # For each component, in COMPONENTS order:
 #   1. fetch:   download the tarball named in sources.lock, refuse it unless
@@ -768,7 +769,7 @@ build_xlibre_xserver() {
     [ ! -e "$x/libexec/Xorg.wrap" ] && [ ! -e "$x/libexec/Xorg" ] || fail "the suid wrapper was built"
     [ "$(readlink "$x/bin/X")" = Xorg ] || fail "$X_PREFIX/bin/X does not link to Xorg"
     test -f "$x/share/X11/xorg.conf.d/10-quirks.conf" || fail "10-quirks.conf not staged"
-    [ ! -e "$x/etc" ] || fail "$X_PREFIX/etc staged: $(cd "$x/etc" && find . ! -type d)"
+    [ ! -e "$COMP_ROOT$X_PREFIX/etc" ] || fail "$X_PREFIX/etc staged: $(cd "$COMP_ROOT$X_PREFIX/etc" && find . ! -type d)"
     for s in "$x"/share/X11/xorg.conf.d/*; do
         [ "$(basename "$s")" = 10-quirks.conf ] || fail "unexpected $(basename "$s") in $X_PREFIX/share/X11/xorg.conf.d"
     done
@@ -811,6 +812,160 @@ build_xlibre_xserver() {
 }
 
 # =============================================================================
+# The X.Org tools (nextbsd-xlibre#5, E23 step 13): xauth and xinit (the rest
+# of xlibre-minimal), then xset, setxkbmap, xinput and xrandr, the tools the
+# desktop runs. Each is a program in /usr/X11/bin with its man page in
+# /usr/X11/share/man/man1, linking only the X client libraries from
+# nextbsd-xlibs' /usr/X11/lib and the base.
+# =============================================================================
+
+# tool_check <prog> <needed>...: /usr/X11/bin/<prog> and its man page are
+# staged; it links each <needed>; every library it links is in /usr/X11/lib
+# (nextbsd-xlibs, nextbsd-mesa, this repo) or the base (/lib, /usr/lib); it has
+# no build-host RPATH; and neither it nor its man page names /usr/local or a
+# build-host path.
+tool_check() {
+    local prog="$1" bin="$DESTDIR$X_PREFIX/bin/$1" man="$DESTDIR$X_PREFIX/share/man/man1/$1.1" n lib
+    shift
+    test -x "$bin" || fail "$prog not staged in $X_PREFIX/bin"
+    test -f "$man" || fail "$prog.1 not staged in $X_PREFIX/share/man/man1"
+    for n in "$@"; do needed_check "$bin" "$n"; done
+    for lib in $("$CROSS_BINDIR/llvm-readelf" -d "$bin" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+        if [ -e "$SYSROOT$X_PREFIX/lib/$lib" ]; then
+            note "$prog: $lib in $X_PREFIX/lib"
+        elif [ -e "$SYSROOT/lib/$lib" ] || [ -e "$SYSROOT/usr/lib/$lib" ]; then
+            note "$prog: $lib in the base"
+        else
+            fail "$prog links $lib, which is neither in $X_PREFIX/lib nor in the base"
+        fi
+    done
+    no_build_rpath "$bin"
+    if grep -l -a -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$bin" "$man"; then
+        fail "$prog or its man page names /usr/local or a build-host path"
+    fi
+}
+
+# xauth 1.1.5 — the X authority file utility: startx writes the server's and
+# the user's cookies with it, and loginwindow can too. autotools.
+build_xauth() {
+    comp "xauth [autotools cross]"
+    fresh_dirs xauth
+    fetch xauth
+    autotools_build
+    stage xauth
+    tool_check xauth libX11.so.6 libXau.so.6 libXext.so.6 libXmuu.so.1
+}
+
+# xinit 1.4.4 — xinit, startx and the default xinitrc. autotools.
+#
+# Paths: the server is $X_PREFIX/bin/X (the server's Xorg link), xauth and
+# xinit are called by their $X_PREFIX/bin paths, and the system xinitrc (and
+# an optional xserverrc) live in $X_PREFIX/etc/X11/xinit, under the server's
+# own sysconfdir ($X_PREFIX/etc/X11). twm, xclock, xterm, xrdb and xmodmap,
+# which upstream's sample xinitrc starts, are not part of NextBSD and are left
+# as bare names: a user's ~/.xinitrc (or $XINITRC) is the session.
+#
+# Privilege: no suid wrapper is built (see xlibre-xserver). launchd and
+# loginwindow start X as root, and startx works when run as root; startx as a
+# normal user needs root. Apple-launchd support (XQuartz's privileged_startx and LaunchAgents) is
+# off. The cookie maker is the base's /usr/bin/openssl (configure would
+# otherwise pick up the build host's mcookie). The xinitrc is made executable,
+# as upstream does since xinit commit e914dae9: startx passes it to xinit as
+# the client program. patches/xinit/ makes startx run xauth from its path
+# everywhere and xinit's default server $X_PREFIX/bin/X rather than X from
+# $PATH. xinit itself reads only ~/.xinitrc; the system xinitrc is startx's.
+build_xinit() {
+    comp "xinit [autotools cross]"
+    [ -x "$SYSROOT$X_PREFIX/bin/xauth" ] || fail "$SYSROOT$X_PREFIX/bin/xauth missing; build xauth first"
+    [ "$(readlink "$SYSROOT$X_PREFIX/bin/X")" = Xorg ] || fail "$SYSROOT$X_PREFIX/bin/X does not link to Xorg; build xlibre-xserver first"
+    fresh_dirs xinit
+    fetch xinit
+    local xinitdir="$X_PREFIX/etc/X11/xinit"
+    autotools_build --without-launchd \
+        --with-xserver="$X_PREFIX/bin/X" --with-xauth="$X_PREFIX/bin/xauth" \
+        --with-xinit="$X_PREFIX/bin/xinit" --with-xinitdir="$xinitdir" \
+        MCOOKIE="/usr/bin/openssl rand -hex 16"
+    chmod 0755 "$COMP_ROOT$xinitdir/xinitrc"
+    stage xinit
+    local x="$DESTDIR$X_PREFIX" startx="$DESTDIR$X_PREFIX/bin/startx" rc="$DESTDIR$xinitdir/xinitrc" s
+    tool_check xinit libX11.so.6
+    test -x "$startx" || fail "startx not staged"
+    test -f "$x/share/man/man1/startx.1" || fail "startx.1 not staged"
+    test -x "$rc" || fail "$xinitdir/xinitrc not staged executable"
+    for s in "xserver=\"$X_PREFIX/bin/X\"" "xauth=\"$X_PREFIX/bin/xauth\"" \
+             "xinit=\"$X_PREFIX/bin/xinit\"" "xinitdir=\"$xinitdir\"" \
+             'mk_cookie="/usr/bin/openssl rand -hex 16"' 'has_cookie_maker="true"'; do
+        grep -q -x -F "$s" "$startx" || fail "startx does not set $s"
+    done
+    note "startx: server $X_PREFIX/bin/X, xauth $X_PREFIX/bin/xauth, xinitrc in $xinitdir"
+    if grep -n -E '(^|[^"$/])xauth (-q|list|add|remove)' "$startx"; then
+        fail "startx runs a bare xauth"
+    fi
+    if grep -n -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$startx" "$rc" "$x/share/man/man1/startx.1"; then
+        fail "startx, xinitrc or startx.1 names /usr/local or a build-host path"
+    fi
+    if grep -n -E '@[A-Za-z_]+@' "$startx" "$rc"; then
+        fail "startx or xinitrc has an unsubstituted @VAR@"
+    fi
+    grep -q -a -F "$X_PREFIX/bin/X" "$x/bin/xinit" || fail "xinit's default server is not $X_PREFIX/bin/X"
+    [ ! -e "$x/libexec/privileged_startx" ] || fail "Apple-launchd support was built"
+    note "xinit: default server $X_PREFIX/bin/X, xinitrc $xinitdir/xinitrc"
+}
+
+# xset 1.2.6 — user preferences (DPMS, keyboard repeat, bell, screen saver).
+# meson. The fontcache and XFree86-Misc extensions are long gone from servers,
+# and nextbsd-xlibs has neither library, so both are off.
+build_xset() {
+    comp "xset [meson cross]"
+    fresh_dirs xset
+    fetch xset
+    meson_build -Dfontcache=disabled -Dxf86misc=disabled
+    stage xset
+    tool_check xset libX11.so.6 libXmuu.so.1 libXext.so.6
+}
+
+# setxkbmap 1.3.5 — sets the XKB keymap (the Keyboard settings use it). meson.
+# Its XKB config root is $X_PREFIX/share/X11/xkb, as for xkbcomp and the server.
+build_setxkbmap() {
+    comp "setxkbmap [meson cross]"
+    fresh_dirs setxkbmap
+    fetch setxkbmap
+    meson_build -Dxkb-config-root="$X_PREFIX/share/X11/xkb"
+    stage setxkbmap
+    tool_check setxkbmap libX11.so.6 libxkbfile.so.1 libXrandr.so.2
+    grep -q -a -F "$X_PREFIX/share/X11/xkb" "$DESTDIR$X_PREFIX/bin/setxkbmap" \
+        || fail "setxkbmap does not name $X_PREFIX/share/X11/xkb"
+    note "setxkbmap XKB config root: $X_PREFIX/share/X11/xkb"
+}
+
+# xinput 1.6.4 — lists input devices and sets their properties (the Mouse
+# settings set libinput's through it). autotools; XI 2.2 support.
+build_xinput() {
+    comp "xinput [autotools cross]"
+    fresh_dirs xinput
+    fetch xinput
+    autotools_build
+    stage xinput
+    tool_check xinput libX11.so.6 libXi.so.6 libXrandr.so.2 libXinerama.so.1
+}
+
+# xrandr 1.5.4 — output, mode and rotation control (E24's Display settings).
+# meson. Upstream also installs xkeystone, a script for the nickle
+# interpreter, which NextBSD does not ship; it is removed.
+build_xrandr() {
+    comp "xrandr [meson cross]"
+    fresh_dirs xrandr
+    fetch xrandr
+    meson_build
+    rm -f "$COMP_ROOT$X_PREFIX/bin/xkeystone"
+    stage xrandr
+    # libXrender is a build dependency only: meson links --as-needed and
+    # xrandr calls none of its functions, so it is not in DT_NEEDED.
+    tool_check xrandr libX11.so.6 libXrandr.so.2
+    [ ! -e "$DESTDIR$X_PREFIX/bin/xkeystone" ] || fail "xkeystone staged"
+}
+
+# =============================================================================
 # driver
 # =============================================================================
 # Add a component: pin it in sources.lock, write build_<name>() above (hyphens
@@ -830,6 +985,12 @@ COMPONENTS="
     libinput
     libpciaccess
     xlibre-xserver
+    xauth
+    xinit
+    xset
+    setxkbmap
+    xinput
+    xrandr
 "
 
 if [ $# -gt 0 ]; then

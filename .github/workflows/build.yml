@@ -7,7 +7,8 @@ name: Build NextBSD xlibre (the X server stack)
 # (xkeyboard-config, xkbcomp), nextbsd-xlibre#1, the input stack
 # (libudev-devd, libevdev, mtdev, libinput), nextbsd-xlibre#2, and the XLibre
 # server (libpciaccess, xlibre-xserver with modesetting and glamor),
-# nextbsd-xlibre#3. The sysroot is compat's `continuous` base with
+# nextbsd-xlibre#3, and the X.Org tools (xauth, xinit, xset, setxkbmap, xinput,
+# xrandr), nextbsd-xlibre#5. The sysroot is compat's `continuous` base with
 # nextbsd-xlibs' (the X client libraries, libdrm, pixman, libxkbfile) and
 # nextbsd-mesa's (libglvnd, Mesa's GL, EGL and GBM) `continuous` artifacts on
 # top.
