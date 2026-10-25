@@ -10,7 +10,7 @@
 # XLibre server (libpciaccess, xlibre-xserver with modesetting and glamor),
 # its input and video drivers, the X.Org tools (xauth, xinit, xset,
 # setxkbmap, xinput, xrandr), and the session clients the stock xinitrc
-# starts (twm, xterm).
+# starts (twm, xclock, xterm).
 #
 # What both display servers share (libdrm, pixman, expat, freetype,
 # fontconfig, libxkbcommon, the XKB data, epoll-shim, libudev, libevdev,
@@ -1185,8 +1185,8 @@ build_xauth() {
 # an optional xserverrc) live in $X_PREFIX/etc/X11/xinit, under the server's
 # own sysconfdir ($X_PREFIX/etc/X11). twm, xclock, xterm, xrdb and xmodmap,
 # which upstream's sample xinitrc starts, are left as bare names, found on
-# $PATH: twm and xterm are built below (nextbsd-xlibre#18); xclock, xrdb and
-# xmodmap are not part of NextBSD. A user's ~/.xinitrc (or $XINITRC) is their
+# $PATH: twm, xclock and xterm are built below (nextbsd-xlibre#18, #22); xrdb
+# and xmodmap are not part of NextBSD. A user's ~/.xinitrc (or $XINITRC) is their
 # own session.
 #
 # Privilege: Xorg is set-uid root and no suid wrapper is built (see
@@ -1287,14 +1287,12 @@ build_xrandr() {
 }
 
 # =============================================================================
-# The session clients (nextbsd-xlibre#18): twm and xterm, what the stock
-# xinitrc runs (it ends with `exec xterm`, and xterm is startx's fallback
-# client), so `startx` gives a usable session. Each is a program in
+# The session clients (nextbsd-xlibre#18, #22): twm, xclock and xterm, what
+# the stock xinitrc runs (it ends with `exec xterm`, and xterm is startx's
+# fallback client), so `startx` gives a usable session. Each is a program in
 # /usr/X11/bin with its man page, linking only nextbsd-xlibs' X client
 # libraries (libXaw and libXpm since nextbsd-xlibs#11),
 # nextbsd-displayserver-support's freetype and fontconfig, and the base.
-# xclock, also in the xinitrc, is not shipped: its line fails in the
-# background and the session runs on.
 # =============================================================================
 
 # twm 1.0.13.1 — the X.Org window manager. autotools. The tarball carries
@@ -1314,6 +1312,28 @@ build_twm() {
     test -f "$x/share/X11/twm/system.twmrc" || fail "$X_PREFIX/share/X11/twm/system.twmrc not staged"
     grep -q -a -F "$X_PREFIX/share/X11/twm" "$x/bin/twm" || fail "twm does not name $X_PREFIX/share/X11/twm"
     note "twm: system.twmrc in $X_PREFIX/share/X11/twm"
+}
+
+# xclock 1.2.1 — the analog/digital clock the stock xinitrc starts
+# (nextbsd-xlibre#22). meson. Xaw7 widgets, Xft and Xrender for anti-aliased
+# drawing, XKB bells (libxkbfile), iconv from the base's libc. The
+# app-defaults directory is given explicitly: otherwise meson reads xt.pc's
+# appdefaultdir, which pkgconf returns with the build sysroot in front
+# (the leak nextbsd-xlibre#20 fixed for the DRI path).
+build_xclock() {
+    comp "xclock [meson cross]"
+    fresh_dirs xclock
+    fetch xclock
+    local appdefaults="$X_PREFIX/share/X11/app-defaults" s
+    meson_build -Dappdefaultdir="$appdefaults" -Dxft=enabled -Dxkb=enabled
+    stage xclock
+    tool_check xclock libXaw.so.7 libXmu.so.6 libXt.so.6 libX11.so.6 libXft.so.2 libXrender.so.1 libxkbfile.so.1
+    for s in XClock XClock-color XClock-ampm XClock-grandfather; do
+        test -f "$DESTDIR$appdefaults/$s" || fail "app-defaults/$s not staged in $appdefaults"
+    done
+    grep -q -F "$appdefaults" "$DESTDIR$X_PREFIX/share/man/man1/xclock.1" \
+        || fail "xclock.1 does not name $appdefaults"
+    note "xclock: app-defaults in $appdefaults"
 }
 
 # xterm 412 — the terminal emulator. autotools (Thomas Dickey's configure).
@@ -1414,6 +1434,7 @@ COMPONENTS="
     xinput
     xrandr
     twm
+    xclock
     xterm
 "
 
