@@ -609,11 +609,12 @@ build_libpciaccess() {
     pc_check pciaccess "$VERSION"
 }
 
-# xlibre-xserver 25.2.2 — the XLibre X server: Xorg, its modules and the SDK
+# xlibre-xserver 25.1.9 — the XLibre X server: Xorg, its modules and the SDK
 # (headers, xorg-server.pc) the drivers build against. meson. The tag archive
-# is pinned (no release tarballs); patches/xlibre-xserver/ holds the FreeBSD
-# port's server patches that 25.2.2 still needs (D11; series says which and
-# why the others are not carried).
+# is pinned (no release tarballs); 25.1.9 is upstream's "Latest" release, every
+# 25.2.x being a pre-release (E23 D5's fallback). patches/xlibre-xserver/ holds
+# the FreeBSD port's server patches that 25.1.9 still needs (D11; series says
+# which and why the others are not carried).
 #
 # Servers: Xorg only. Xvfb, Xnest, Xephyr, Xfbdev, XWin and XQuartz are off;
 # there is no Xwayland in this tree.
@@ -623,7 +624,10 @@ build_libpciaccess() {
 # libepoxy are all in the sysroot, so glamor, the modesetting driver (meson
 # builds it only with GBM), GLX with DRI, DRI2 and DRI3 are on; meson is told
 # so explicitly, so a missing dependency fails the build instead of quietly
-# dropping them. On amd64 the legacy NVIDIA ScreenRec padding is on, as in
+# dropping them. 25.1.9 has no gbm option (25.2 added -Dgbm): it looks GBM up
+# whenever glamor is built and builds glamoregl and modesetting only if it is
+# found, so the module checks below are what fail on a missing libgbm. On
+# amd64 the legacy NVIDIA ScreenRec padding is on, as in
 # FreeBSD's port: NVIDIA's nvidia_drv.so is built for that ABI (E23 D15).
 #
 # Input and devices: the udev config backend and KMS device discovery
@@ -639,7 +643,7 @@ build_libpciaccess() {
 # running startx needs root, as with any X without a wrapper; a seat manager
 # would be later work.
 #
-# Paths: modules under /usr/X11/lib/xorg/modules (25.2.2 installs them in its
+# Paths: modules under /usr/X11/lib/xorg/modules (25.1.9 installs them in its
 # xlibre-25 ABI directory there, which the loader searches first); XKB data
 # /usr/share/X11/xkb (nextbsd-displayserver-support's xkeyboard-config, E25),
 # xkbcomp from /usr/X11/bin; compiled keymaps in /var/db/xkb, a directory
@@ -663,7 +667,7 @@ build_xlibre_xserver() {
     meson_build \
         -Dxorg=true -Dxvfb=false -Dxnest=false -Dxephyr=false -Dxfbdev=false \
         -Dxwin=false -Dxquartz=false \
-        -Dglamor=true -Dgbm=true -Ddrm=true -Dglx=true -Dglx_dri=true \
+        -Dglamor=true -Ddrm=true -Dglx=true -Dglx_dri=true \
         -Ddri2=true -Ddri3=true -Dpciaccess=true \
         -Dudev=true -Dudev_kms=true -Dhal=false -Dsystemd_logind=false \
         -Dsystemd_notify=false -Dseatd_libseat=false -Dsuid_wrapper=false \
@@ -675,12 +679,14 @@ build_xlibre_xserver() {
         -Dlog_dir=/var/log -Ddefault_font_path=built-ins \
         -Dxkb_dir="$XKB_DIR" -Dxkb_bin_dir="$X_PREFIX/bin" \
         -Dxkb_output_dir="$XKM_DIR"
-    # 25.2.2 installs upstream's NVIDIA OutputClass snippets: 10-nvidia.conf
-    # and 10-nvidia-modules.conf in share/X11/xorg.conf.d (written for Linux
-    # 6.12+'s nvidia-drm, with a ModulePath of /usr/X11/lib/nvidia/xorg) and
-    # Debian copies in etc/X11/xorg.conf.d. They are removed: FreeBSD's port
-    # ships none of them, and where NVIDIA's driver and its configuration live
-    # is the NVIDIA bundle's business (E23 D15). 10-quirks.conf stays.
+    # 25.1.9 installs upstream's NVIDIA OutputClass snippets (from
+    # config/meson.build): 10-nvidia.conf and 10-nvidia-modules.conf in
+    # share/X11/xorg.conf.d (written for Linux 6.12+'s nvidia-drm, with a
+    # ModulePath of /usr/X11/lib/nvidia/xorg) and Debian copies in
+    # etc/X11/xorg.conf.d. They are removed: FreeBSD's port ships none of them
+    # (its post-patch sed drops them), and where NVIDIA's driver and its
+    # configuration live is the NVIDIA bundle's business (E23 D15).
+    # 10-quirks.conf stays.
     rm -f "$COMP_ROOT$X_PREFIX"/share/X11/xorg.conf.d/10-nvidia*.conf \
           "$COMP_ROOT$X_PREFIX"/etc/X11/xorg.conf.d/10-nvidia*.conf.debian
     # The on-demand LaunchAgent (nextbsd-xlibre#13): launchd starts Xorg

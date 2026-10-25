@@ -8,15 +8,15 @@ Description: meson: take epoll-shim's include path from its dependency.
  (epoll-shim is still used where the server needs it). The USE_DEV_IO hunk
  for 32-bit arm is inert on NextBSD (amd64 and arm64 only) and is kept to
  stay identical to the port.
- Rebased for 25.2.2: the include_directories() hunk moved; otherwise
- unchanged.
+ Still needed on 25.1.9: its meson.build has the same epoll_inc. Unchanged
+ from FreeBSD's port (which builds 25.1.9); it applies to 25.1.9 as it is.
 Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-include_meson.build
  (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-include_meson.build)
 Forwarded: not yet; the epoll_inc removal is a candidate for X11Libre
  (it breaks cross builds); the HAVE_EPOLL_CREATE1 change is a FreeBSD choice
 ---
 diff --git a/include/meson.build b/include/meson.build
-index 2e4234f..382e743 100644
+index bddb11f..62f492a 100644
 --- a/include/meson.build
 +++ b/include/meson.build
 @@ -140,7 +140,7 @@ conf_data.set('HAVE_ARC4RANDOM_BUF', cc.has_function('arc4random_buf', dependenc
@@ -28,7 +28,7 @@ index 2e4234f..382e743 100644
  conf_data.set('HAVE_GETUID', cc.has_function('getuid') ? '1' : false)
  conf_data.set('HAVE_GETEUID', cc.has_function('geteuid') ? '1' : false)
  conf_data.set('HAVE_ISASTREAM', cc.has_function('isastream') ? '1' : false)
-@@ -396,7 +396,7 @@ xorg_data.set('HAVE_SYS_VT_H', cc.has_header('sys/vt.h') ? '1' : false)
+@@ -395,7 +395,7 @@ xorg_data.set('HAVE_SYS_VT_H', cc.has_header('sys/vt.h') ? '1' : false)
  xorg_data.set('HAVE_MODESETTING_DRIVER', build_modesetting ? '1' : false)
  
  if host_machine.system() == 'freebsd' or host_machine.system() == 'dragonfly'
@@ -38,10 +38,10 @@ index 2e4234f..382e743 100644
      endif
  elif host_machine.system() == 'netbsd' or host_machine.system() == 'openbsd'
 diff --git a/meson.build b/meson.build
-index 7cec15c..08f25c5 100644
+index c831c17..f8ec05e 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -537,10 +537,8 @@ endif
+@@ -506,10 +506,8 @@ endif
  
  if host_machine.system() in ['freebsd', 'openbsd', 'dragonfly']
     epoll_dep = dependency('epoll-shim')
@@ -52,10 +52,10 @@ index 7cec15c..08f25c5 100644
  endif
  
  have_eventfd = cc.has_header('sys/eventfd.h', dependencies: epoll_dep)
-@@ -690,7 +688,6 @@ inc = include_directories(
-     'miext/sync',
-     'dix',
-     'include',
+@@ -666,7 +664,6 @@ inc = include_directories(
+     'randr',
+     'render',
+     'xfixes',
 -    epoll_inc,
  )
  

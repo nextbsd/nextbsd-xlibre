@@ -9,14 +9,15 @@ Description: config/udev: kbdmux and console-attached keyboards on NextBSD.
     no evdev(4) (feature_present("evdev_support") is false), since then no
     InputClass matches them and no driver attaches. vbox pointers get
     vboxmouse.
- Unchanged from FreeBSD's port; it applies to 25.2.2 as it is.
+ Unchanged from FreeBSD's port (which builds 25.1.9); it applies to 25.1.9
+ as it is.
 Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-config_udev.c
  (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-config_udev.c)
 Forwarded: not yet; a candidate for X11Libre under #ifdef __FreeBSD__
  (config/udev.c on FreeBSD always means libudev-devd)
 ---
 diff --git a/config/udev.c b/config/udev.c
-index 5dc7888..fc8e564 100644
+index 45da00f..6ad1f29 100644
 --- a/config/udev.c
 +++ b/config/udev.c
 @@ -27,6 +27,7 @@
@@ -26,8 +27,8 @@ index 5dc7888..fc8e564 100644
 +#include <fcntl.h>
  #include <unistd.h>
  
- #include "dix/settings_priv.h"
-@@ -194,7 +195,21 @@ device_added(struct udev_device *udev_device)
+ #include "config/hotplug_priv.h"
+@@ -193,7 +194,21 @@ device_added(struct udev_device *udev_device)
      char buf[128];
      input_options = input_option_new(input_options, "name", name);
      input_options = input_option_new(input_options, "path", path);
@@ -50,7 +51,7 @@ index 5dc7888..fc8e564 100644
      sprintf(buf, "%u", major(devnum));
      input_options = input_option_new(input_options, "major", buf);
      sprintf(buf, "%u", minor(devnum));
-@@ -278,6 +293,18 @@ device_added(struct udev_device *udev_device)
+@@ -277,6 +292,18 @@ device_added(struct udev_device *udev_device)
          }
      }
  
