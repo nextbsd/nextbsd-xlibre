@@ -22,8 +22,10 @@ It builds the server's support libraries and the XKB keymap compiler
 (nextbsd/nextbsd-xlibre#1), the XLibre server 25.1.9 with modesetting and
 glamor (nextbsd/nextbsd-xlibre#3), its input and video drivers
 (nextbsd/nextbsd-xlibre#4), and the X.Org tools xauth, xinit (with startx),
-xset, setxkbmap, xinput and xrandr (nextbsd/nextbsd-xlibre#5). No fonts are
-built: the server has built-in fonts.
+xset, setxkbmap, xinput and xrandr (nextbsd/nextbsd-xlibre#5), and twm and
+xterm, the clients the stock xinitrc starts, so `startx` gives a usable
+session (nextbsd/nextbsd-xlibre#18). No fonts are built: the server has
+built-in fonts.
 
 **What both display servers share is not built here.** The XKB data
 (xkeyboard-config), epoll-shim, libudev-devd, libevdev, mtdev, libinput and the
@@ -176,6 +178,8 @@ and the input stack from `nextbsd-displayserver-support`'s.
 | `setxkbmap` | 1.3.5 | meson | `/usr/X11/bin/setxkbmap`, `setxkbmap.1` | nextbsd/nextbsd-xlibre#5 |
 | `xinput` | 1.6.4 | autotools | `/usr/X11/bin/xinput`, `xinput.1` | nextbsd/nextbsd-xlibre#5 |
 | `xrandr` | 1.5.4 | meson | `/usr/X11/bin/xrandr`, `xrandr.1` (not `xkeystone`, a script for the nickle interpreter) | nextbsd/nextbsd-xlibre#5 |
+| `twm` | 1.0.13.1 | autotools | `/usr/X11/bin/twm`, `/usr/X11/share/X11/twm/system.twmrc`, `twm.1` | nextbsd/nextbsd-xlibre#18 |
+| `xterm` | 412 | autotools | `/usr/X11/bin/xterm`, `resize`, `uxterm`, `koi8rxterm`, their man pages, app-defaults in `/usr/X11/share/X11/app-defaults` (see [session clients](#the-session-clients)) | nextbsd/nextbsd-xlibre#18 |
 | `xf86-input-libinput` | 25.0.1 | autotools | `input/libinput_drv.so`, `libinput-properties.h`, `xorg-libinput.pc`, `40-libinput.conf`, `libinput.4x` | nextbsd/nextbsd-xlibre#4 |
 | `xf86-input-evdev` | 25.0.0 | autotools | `input/evdev_drv.so`, `evdev-properties.h`, `10-evdev.conf`, `evdev.4x` | nextbsd/nextbsd-xlibre#4 |
 | `xf86-input-joystick` | 25.0.0 | autotools | `input/joystick_drv.so` (BSD usbhid and evdev backends), `joystick-properties.h`, `joystick.4x` | nextbsd/nextbsd-xlibre#4 |
@@ -347,7 +351,7 @@ each library it links resolves there and that no build-host RPATH is set.
 |---|---|
 | X server | `/usr/X11/bin/X`, the server build's link to `Xorg`. startx is configured with it, and xinit's default server is it too (patch `0002`; upstream runs `X` from `$PATH`) |
 | xauth | `/usr/X11/bin/xauth`, the path startx runs. Upstream's startx still ran a bare `xauth` from `$PATH` in two places; patch `0001` makes it use the configured path throughout |
-| xinitrc | the system xinitrc is upstream's sample, `/usr/X11/etc/X11/xinit/xinitrc`, under the server's own configuration directory (`/usr/X11/etc/X11`); startx also looks there for `xserverrc` and `xinitrc.d/*.sh`. It starts twm, xclock and xterm, which NextBSD does not ship, so a session belongs in `~/.xinitrc` (or `$XINITRC`). Installed executable, as upstream does since 1.4.4: startx hands it to xinit as the client program. xinit itself reads only `~/.xinitrc` |
+| xinitrc | the system xinitrc is upstream's sample, `/usr/X11/etc/X11/xinit/xinitrc`, under the server's own configuration directory (`/usr/X11/etc/X11`); startx also looks there for `xserverrc` and `xinitrc.d/*.sh`. It starts twm and three xterms and ends with `exec xterm` (twm and xterm are built here, see [session clients](#the-session-clients)); its `xclock &` line fails in the background, since xclock is not shipped. A session of one's own belongs in `~/.xinitrc` (or `$XINITRC`). Installed executable, as upstream does since 1.4.4: startx hands it to xinit as the client program. xinit itself reads only `~/.xinitrc` |
 | Cookies | startx makes the MIT-MAGIC-COOKIE with the base's `/usr/bin/openssl rand -hex 16` |
 | Privilege | no suid wrapper (see [server](#the-x-server)). X is started as root by launchd/loginwindow; `startx` run as root works, and `startx` as a normal user needs root |
 | Not built | xinit's Apple launchd support (XQuartz's `privileged_startx` and LaunchAgents); xset's fontcache and XFree86-Misc extensions (gone from servers; no library in `nextbsd-xlibs`); xrandr's `xkeystone` |
@@ -359,6 +363,24 @@ each library it links resolves there and that no build-host RPATH is set.
 |---|---|
 | `0001` startx | runs xauth as `"$xauth"` (`/usr/X11/bin/xauth`) everywhere, not a bare `xauth` from `$PATH` for the server's cookie file and the `xauth list` lookup |
 | `0002` xinit | the default server is `BINDIR "/X"` (`/usr/X11/bin/X`) instead of `X` from `$PATH` |
+
+### The session clients
+
+twm and xterm (nextbsd/nextbsd-xlibre#18): what the stock xinitrc runs (it
+ends with `exec xterm`, and xterm is startx's fallback client). Without them
+startx's client exits at once and xinit stops the server. Each is in
+`/usr/X11/bin` with its man page, linking only `nextbsd-xlibs`' X client
+libraries, `nextbsd-displayserver-support`'s freetype and fontconfig, and the
+base; the build checks each library it links resolves there and that no
+build-host RPATH is set.
+
+| What | Choice |
+|---|---|
+| twm | X.Org's 1.0.13.1 release tarball. RandR on. Its default configuration is `/usr/X11/share/X11/twm/system.twmrc` (also compiled in). The tarball carries the generated parser; configure finds the toolchain image's bison and flex |
+| xterm | Thomas Dickey's xterm 412 from invisible-island.net (not an X.Org or XLibre project). Menus with Xaw7 (`libXaw.so.7`, nextbsd/nextbsd-xlibs#11; xterm cannot be built without an Athena library), TrueType fonts through Xft, fontconfig and freetype, Xinerama, termcap/terminfo from the base's ncurses |
+| xterm app-defaults | `/usr/X11/share/X11/app-defaults` (XTerm, UXTerm, KOI8RXTerm and their `-color` variants), the directory `nextbsd-xlibs`' libXt searches |
+| Privilege | xterm and resize are not set-uid or set-gid (`--disable-setuid --disable-setgid`); the pty comes from `openpty(3)`, and no utmpx entry is written |
+| Not built | xterm's Xpm icons (`--without-xpm`, no pixmap directory), `.desktop` files, luit (`--disable-luit`; no luit is shipped), utempter, imake, the `-rpath` configure would add for `/usr/X11/lib`; xclock |
 
 ### Drivers
 

@@ -8,8 +8,9 @@
 # the /usr/X11 prefix with upstream sonames. So far: the server's support
 # libraries (libepoxy, libxcvt), the XKB keymap compiler (xkbcomp), the
 # XLibre server (libpciaccess, xlibre-xserver with modesetting and glamor),
-# its input and video drivers, and the X.Org tools (xauth, xinit, xset,
-# setxkbmap, xinput, xrandr).
+# its input and video drivers, the X.Org tools (xauth, xinit, xset,
+# setxkbmap, xinput, xrandr), and the session clients the stock xinitrc
+# starts (twm, xterm).
 #
 # What both display servers share (libdrm, pixman, expat, freetype,
 # fontconfig, libxkbcommon, the XKB data, epoll-shim, libudev, libevdev,
@@ -1102,8 +1103,10 @@ build_xauth() {
 # xinit are called by their $X_PREFIX/bin paths, and the system xinitrc (and
 # an optional xserverrc) live in $X_PREFIX/etc/X11/xinit, under the server's
 # own sysconfdir ($X_PREFIX/etc/X11). twm, xclock, xterm, xrdb and xmodmap,
-# which upstream's sample xinitrc starts, are not part of NextBSD and are left
-# as bare names: a user's ~/.xinitrc (or $XINITRC) is the session.
+# which upstream's sample xinitrc starts, are left as bare names, found on
+# $PATH: twm and xterm are built below (nextbsd-xlibre#18); xclock, xrdb and
+# xmodmap are not part of NextBSD. A user's ~/.xinitrc (or $XINITRC) is their
+# own session.
 #
 # Privilege: no suid wrapper is built (see xlibre-xserver). launchd and
 # loginwindow start X as root, and startx works when run as root; startx as a
@@ -1204,6 +1207,102 @@ build_xrandr() {
 }
 
 # =============================================================================
+# The session clients (nextbsd-xlibre#18): twm and xterm, what the stock
+# xinitrc runs (it ends with `exec xterm`, and xterm is startx's fallback
+# client), so `startx` gives a usable session. Each is a program in
+# /usr/X11/bin with its man page, linking only nextbsd-xlibs' X client
+# libraries (libXaw and libXpm since nextbsd-xlibs#11),
+# nextbsd-displayserver-support's freetype and fontconfig, and the base.
+# xclock, also in the xinitrc, is not shipped: its line fails in the
+# background and the session runs on.
+# =============================================================================
+
+# twm 1.0.13.1 — the X.Org window manager. autotools. The tarball carries
+# the generated parser and lexer (src/gram.c, src/lex.c); configure still
+# looks for yacc and lex, and finds the toolchain image's bison and flex.
+# RandR support is on (libXrandr). The default configuration is
+# /usr/X11/share/X11/twm/system.twmrc, and is also compiled in.
+build_twm() {
+    comp "twm [autotools cross]"
+    fresh_dirs twm
+    fetch twm
+    autotools_build
+    stage twm
+    local x="$DESTDIR$X_PREFIX"
+    config_has HAVE_XRANDR
+    tool_check twm libX11.so.6 libXext.so.6 libXt.so.6 libXmu.so.6 libICE.so.6 libSM.so.6 libXrandr.so.2
+    test -f "$x/share/X11/twm/system.twmrc" || fail "$X_PREFIX/share/X11/twm/system.twmrc not staged"
+    grep -q -a -F "$X_PREFIX/share/X11/twm" "$x/bin/twm" || fail "twm does not name $X_PREFIX/share/X11/twm"
+    note "twm: system.twmrc in $X_PREFIX/share/X11/twm"
+}
+
+# xterm 412 — the terminal emulator. autotools (Thomas Dickey's configure).
+#
+# Toolkit: Xaw7 for the menus (nextbsd-xlibs' libXaw.so.7; xterm cannot be
+# built without an Athena library), Xft with fontconfig and freetype for
+# TrueType fonts (the default faceName comes from the user; NextBSD ships no
+# core fonts, so the server's built-in "fixed" is the bitmap fallback),
+# Xinerama, and the base's ncurses (libtinfow) for termcap/terminfo, found by
+# configure's tgetent check.
+#
+# Not built: libXpm icons (--without-xpm, and no pixmap directory, since
+# its icons need Xpm), the .desktop files (--disable-desktop), luit
+# (--disable-luit: no luit is shipped, and configure would otherwise look
+# one up on the build host), utempter (not given --with-utempter), imake.
+# --disable-rpath-hack: configure would add an -rpath for /usr/X11/lib;
+# ldconfig finds it at run time, as for the other tools.
+#
+# Privilege: no set-uid or set-gid (--disable-setuid --disable-setgid).
+# xterm opens its pty with openpty(3) from the base's libutil, and without
+# privilege it records no utmpx entry.
+#
+# app-defaults go to /usr/X11/share/X11/app-defaults, the directory
+# nextbsd-xlibs' libXt searches (xt.pc's appdefaultdir); configure's default
+# is EPREFIX/lib/X11/app-defaults. Installs xterm, resize, uxterm and
+# koi8rxterm (shell wrappers that set a locale and run xterm), with man
+# pages.
+build_xterm() {
+    comp "xterm [autotools cross]"
+    fresh_dirs xterm
+    fetch xterm
+    local appdefaults="$X_PREFIX/share/X11/app-defaults"
+    autotools_build --with-app-defaults="$appdefaults" \
+        --disable-setuid --disable-setgid --without-utempter \
+        --disable-luit --without-xpm --without-pixmapdir --disable-desktop \
+        --disable-imake --disable-rpath-hack
+    stage xterm
+    local x="$DESTDIR$X_PREFIX" s
+    for s in HAVE_LIB_XAW OPT_WIDE_CHARS XRENDERFONT; do
+        grep -q -E "^#define $s 1([[:space:]]|\$)" "$COMP_BUILD/xtermcfg.h" || fail "xtermcfg.h does not define $s"
+        note "xtermcfg.h: $s"
+    done
+    for s in OPT_LUIT_PROG HAVE_LIBXPM USE_UTEMPTER; do
+        ! grep -q -E "^#define $s([[:space:]]|\$)" "$COMP_BUILD/xtermcfg.h" || fail "xtermcfg.h defines $s"
+    done
+    note "xtermcfg.h: no luit, Xpm or utempter"
+    tool_check xterm libXaw.so.7 libXft.so.2 libfontconfig.so.1 libXt.so.6 libX11.so.6
+    not_needed "$x/bin/xterm" 'libXpm' 'libutempter'
+    for s in xterm resize; do
+        [ ! -u "$x/bin/$s" ] && [ ! -g "$x/bin/$s" ] || fail "$s is set-uid or set-gid"
+    done
+    note "xterm and resize: not set-uid or set-gid"
+    tool_check resize
+    for s in uxterm koi8rxterm; do
+        test -x "$x/bin/$s" || fail "$s not staged"
+        test -f "$x/share/man/man1/$s.1" || fail "$s.1 not staged"
+    done
+    for s in XTerm XTerm-color UXTerm UXTerm-color KOI8RXTerm KOI8RXTerm-color; do
+        test -f "$DESTDIR$appdefaults/$s" || fail "app-defaults/$s not staged in $appdefaults"
+    done
+    note "app-defaults in $appdefaults"
+    [ ! -e "$x/share/pixmaps" ] && [ ! -e "$x/share/icons" ] && [ ! -e "$x/share/applications" ] \
+        || fail "xterm icons or desktop files staged"
+    if grep -l -a -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$x"/bin/uxterm "$x"/bin/koi8rxterm "$DESTDIR$appdefaults"/*; then
+        fail "an xterm script or app-defaults file names /usr/local or a build-host path"
+    fi
+}
+
+# =============================================================================
 # driver
 # =============================================================================
 # Add a component: pin it in sources.lock, write build_<name>() above (hyphens
@@ -1232,6 +1331,8 @@ COMPONENTS="
     setxkbmap
     xinput
     xrandr
+    twm
+    xterm
 "
 
 if [ $# -gt 0 ]; then

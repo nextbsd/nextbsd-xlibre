@@ -47,6 +47,15 @@ setxkbmap           1.3.5         360193cecc93f906d8383a8fb5c1f3a7eed35e6ced0e11
 xinput              1.6.4         ad04d00d656884d133110eeddc34e9c69e626ebebbbab04dc95791c2907057c8  https://xorg.freedesktop.org/archive/individual/app/xinput-1.6.4.tar.xz
 xrandr              1.5.4         2cafccb2aaf2491a4068676117a0d4f90ab307724b96fffc54cd1da953779400  https://xorg.freedesktop.org/archive/individual/app/xrandr-1.5.4.tar.xz
 
+# ---- the session clients the stock xinitrc starts (nextbsd-xlibre#18), in build order ----
+# twm is X.Org's release tarball; xterm is Thomas Dickey's (not an X.Org or
+# XLibre project), from invisible-island.net's archive of numbered releases.
+# Both SHA-256s match FreeBSD ports' distinfo for the same tarballs
+# (x11-wm/twm, x11/xterm). xterm needs libXaw (Xaw7) and libXpm from
+# nextbsd-xlibs (nextbsd-xlibs#11).
+twm                 1.0.13.1      a52534755aa8b492c884e52fa988bac84ab4d54641954679b9aaf08e323df2c5  https://xorg.freedesktop.org/archive/individual/app/twm-1.0.13.1.tar.xz
+xterm               412           b48bc780c1cbc14f6d89269f7e593712af6095876960d650be28b55e5dad65a6  https://invisible-island.net/archives/xterm/xterm-412.tgz
+
 # ---- the input and video drivers (nextbsd-xlibre#4, E23 step 12), in build order ----
 # X11Libre publishes no driver tarballs: each is the GitHub tag archive of its
 # xlibre-xf86-*-25.0.x tag (E23 D5), as FreeBSD's x11-drivers/xlibre-xf86-*
