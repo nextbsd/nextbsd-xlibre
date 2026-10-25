@@ -1606,6 +1606,19 @@ build_font_adobe_75dpi() {
     fetch font-adobe-75dpi
     font_build
     host_env mkfontdir "$COMP_ROOT$FONT_75DPI_DIR"
+    # TEMPORARY diagnostics (nextbsd-xlibre#28): repeat mkfontdir and compare.
+    local i
+    for i in 1 2 3; do
+        host_env mkfontscale -b -s -l -o "$BUILD/fonts.dir.$i" "$COMP_ROOT$FONT_75DPI_DIR"
+        echo "diag run $i: $(head -1 "$BUILD/fonts.dir.$i") entries, $(ls "$COMP_ROOT$FONT_75DPI_DIR" | grep -c '\.pcf\.gz$') files, courB08: $(grep -c '^courB08' "$BUILD/fonts.dir.$i")"
+    done
+    diff "$BUILD/fonts.dir.1" "$BUILD/fonts.dir.2" | head -5 || true
+    sed 1d "$BUILD/fonts.dir.1" | awk '{print $1}' | sort > "$BUILD/fd.files"
+    (cd "$COMP_ROOT$FONT_75DPI_DIR" && ls | grep '\.pcf\.gz$' | sort) | comm -13 "$BUILD/fd.files" - | head -20 | sed 's/^/diag missing: /'
+    for f in $( (cd "$COMP_ROOT$FONT_75DPI_DIR" && ls | grep '\.pcf\.gz$' | sort) | comm -13 "$BUILD/fd.files" - | head -3); do
+        echo "diag $f FONT: $(gzip -dc "$COMP_ROOT$FONT_75DPI_DIR/$f" | strings | grep -m1 '^-Adobe')"
+        grep -i -F "$(gzip -dc "$COMP_ROOT$FONT_75DPI_DIR/$f" | strings | grep -m1 '^-Adobe')" "$BUILD/fonts.dir.1" | sed 's/^/diag same name: /'
+    done
     stage font-adobe-75dpi
     local d="$DESTDIR$FONT_75DPI_DIR"
     fonts_dir_check "$d"
