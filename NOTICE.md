@@ -35,6 +35,9 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `xinput` | X.Org, `xorg/app/xinput` | 1.6.4 | HPND / MIT-style, per file (`COPYING`) |
 | `xrandr` | X.Org, `xorg/app/xrandr` | 1.5.4 | HPND-sell-variant (`COPYING`) |
 | `twm` | X.Org, `xorg/app/twm` | 1.0.13.1 | MIT/X11-style (`COPYING`) |
+| `font-misc-misc` | X.Org, `xorg/font/misc-misc` | 1.1.3 | public domain (`COPYING`) |
+| `font-cursor-misc` | X.Org, `xorg/font/cursor-misc` | 1.0.4 | public domain (`COPYING`) |
+| `font-alias` | X.Org, `xorg/font/alias` | 1.0.6 | MIT/X11-style (`COPYING`) |
 | `xclock` | X.Org, `xorg/app/xclock` | 1.2.1 | MIT/X11-style (`COPYING`) |
 | `xterm` | Thomas E. Dickey, invisible-island.net (`archives/xterm`) | 412 | MIT/X11-style (`COPYING`) |
 | `xf86-input-libinput` | X11Libre, `X11Libre/xf86-input-libinput` (tag `xlibre-xf86-input-libinput-25.0.1`) | 25.0.1 | MIT/X11-style, per file (`COPYING`) |

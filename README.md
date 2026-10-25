@@ -24,8 +24,10 @@ glamor (nextbsd/nextbsd-xlibre#3), its input and video drivers
 (nextbsd/nextbsd-xlibre#4), and the X.Org tools xauth, xinit (with startx),
 xset, setxkbmap, xinput and xrandr (nextbsd/nextbsd-xlibre#5), and twm,
 xclock and xterm, the clients the stock xinitrc starts, so `startx` gives a
-usable session (nextbsd/nextbsd-xlibre#18, #22). No fonts are built: the server has
-built-in fonts.
+usable session (nextbsd/nextbsd-xlibre#18, #22). It also ships X.Org's core bitmap
+fonts (misc-misc `fixed`, the cursor font and their aliases) in
+`/usr/X11/share/fonts/X11/misc`, first on the server's default font path
+(nextbsd/nextbsd-xlibre#22; see [fonts](#the-core-bitmap-fonts)).
 
 **What both display servers share is not built here.** The XKB data
 (xkeyboard-config), epoll-shim, libudev-devd, libevdev, mtdev, libinput and the
@@ -178,6 +180,10 @@ and the input stack from `nextbsd-displayserver-support`'s.
 | `setxkbmap` | 1.3.5 | meson | `/usr/X11/bin/setxkbmap`, `setxkbmap.1` | nextbsd/nextbsd-xlibre#5 |
 | `xinput` | 1.6.4 | autotools | `/usr/X11/bin/xinput`, `xinput.1` | nextbsd/nextbsd-xlibre#5 |
 | `xrandr` | 1.5.4 | meson | `/usr/X11/bin/xrandr`, `xrandr.1` (not `xkeystone`, a script for the nickle interpreter) | nextbsd/nextbsd-xlibre#5 |
+| `font-misc-misc` | 1.1.3 | autotools (data) | the misc `fixed` fonts in `/usr/X11/share/fonts/X11/misc` | nextbsd/nextbsd-xlibre#22 |
+| `font-cursor-misc` | 1.0.4 | autotools (data) | `cursor.pcf.gz` | nextbsd/nextbsd-xlibre#22 |
+| `font-alias` | 1.0.6 | autotools (data) | misc `fonts.alias`; `fonts.dir` for the misc directory | nextbsd/nextbsd-xlibre#22 |
+| `host-zlib`, `host-freetype`, `host-libfontenc`, `font-util`, `bdftopcf`, `mkfontscale` | 1.3.2, 2.15.0, 1.1.9, 1.4.2, 1.1.2, 1.2.4 | autotools, **build host only** | nothing shipped: the tools that make the fonts and `fonts.dir` | nextbsd/nextbsd-xlibre#22 |
 | `twm` | 1.0.13.1 | autotools | `/usr/X11/bin/twm`, `/usr/X11/share/X11/twm/system.twmrc`, `twm.1` | nextbsd/nextbsd-xlibre#18 |
 | `xclock` | 1.2.1 | meson | `/usr/X11/bin/xclock`, `xclock.1`, app-defaults in `/usr/X11/share/X11/app-defaults` | nextbsd/nextbsd-xlibre#22 |
 | `xterm` | 412 | autotools | `/usr/X11/bin/xterm`, `resize`, `uxterm`, `koi8rxterm`, their man pages, app-defaults in `/usr/X11/share/X11/app-defaults` (see [session clients](#the-session-clients)) | nextbsd/nextbsd-xlibre#18 |
@@ -236,7 +242,7 @@ FreeBSD's port builds (maintainer decision, 2026-10-25).
 | DRI drivers | GLX loads Mesa's DRI drivers from `/usr/X11/lib/dri`, given explicitly (`-Ddri_driver_path`, patch `0006`): upstream takes `dri.pc`'s `dridriverdir`, which pkgconf returns with the build sysroot in front (nextbsd/nextbsd-xlibre#20). The build checks `libglx.so` names only that directory, and that no shipped file names the build sysroot or checkout |
 | Modules | `/usr/X11/lib/xorg/modules/xlibre-25` (the loader searches it, then `xlibre-25.0` and `/usr/X11/lib/xorg/modules`). The drivers (nextbsd/nextbsd-xlibre#4) install there, `xorg-server.pc`'s `moduledir` (see [drivers](#drivers)) |
 | XKB | rules from `/usr/share/X11/xkb`, `xkbcomp` from `/usr/X11/bin`, compiled keymaps in `/var/db/xkb` (see [XKB paths](#xkb-paths)) |
-| Fonts | default font path `built-ins` only |
+| Fonts | default font path `/usr/X11/share/fonts/X11/misc,built-ins`: the core bitmap fonts built here (see [fonts](#the-core-bitmap-fonts)), then the server's built-in `fixed` and `cursor` |
 | Log | `/var/log/Xorg.N.log` |
 | Configuration | read from `/usr/X11/etc/X11` and `/etc/X11` as upstream does; none is shipped here (it belongs in `nextbsd-overlays`). Of upstream's `share/X11/xorg.conf.d` snippets only `10-quirks.conf` ships; its NVIDIA ones (Linux `nvidia-drm`, and Debian copies in `etc/`) are removed, as NVIDIA's configuration belongs with the NVIDIA bundle (D15). FreeBSD's `20-evdev-kbd.conf` is not needed: the default XKB rules are already `evdev` |
 | SHA-1 | the base's `libmd` |
@@ -364,6 +370,27 @@ each library it links resolves there and that no build-host RPATH is set.
 |---|---|
 | `0001` startx | runs xauth as `"$xauth"` (`/usr/X11/bin/xauth`) everywhere, not a bare `xauth` from `$PATH` for the server's cookie file and the `xauth list` lookup |
 | `0002` xinit | the default server is `BINDIR "/X"` (`/usr/X11/bin/X`) instead of `X` from `$PATH` |
+
+### The core bitmap fonts
+
+X.Org's `font-misc-misc` (the `fixed` family, 4x6 to 10x20, each as ISO 10646-1
+and as the ISO 8859-1 to -16, KOI8-R and JIS X 0201 subsets),
+`font-cursor-misc` (the cursor font) and `font-alias` (the misc `fonts.alias`:
+`fixed`, `variable`, `6x13`, ...) are installed as gzip-compressed PCF in
+`/usr/X11/share/fonts/X11/misc`, X.Org's default layout under the prefix
+(`$datadir/fonts/X11/<dir>`), with a `fonts.dir` for the whole directory. The
+server's default font path is that directory, then `built-ins`
+(nextbsd/nextbsd-xlibre#22: xterm's default `-misc-fixed-...-iso10646-1` and
+twm's `fixed` fontset need them). The 75dpi, 100dpi and cyrillic aliases
+`font-alias` also installs are dropped (those fonts are not shipped).
+
+Making them needs tools that run on the build host: `bdftopcf`, font-util's
+`ucs2any` and encoding maps, and `mkfontdir` (`mkfontscale`), with
+mkfontscale's inputs zlib, FreeType and libfontenc. They are built here for
+the Linux build host (static, in `.build/host`) from pinned tarballs and never
+shipped. Each font package's own `mkfontdir` run is skipped (it would index
+only that package); `fonts.dir` is written once with `mkfontdir`
+(`mkfontscale -b -s -l`) after all misc fonts are staged.
 
 ### The session clients
 
