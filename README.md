@@ -185,6 +185,7 @@ and the input stack from `nextbsd-displayserver-support`'s.
 | `font-jis-misc` | 1.0.4 | autotools (data) | `jiskan16`, `jiskan24` (JIS X 0208) | nextbsd/nextbsd-xlibre#22 |
 | `font-daewoo-misc` | 1.0.4 | autotools (data) | `hanglg16`, `hanglm16`, `hanglm24` (KS C 5601) | nextbsd/nextbsd-xlibre#22 |
 | `font-isas-misc` | 1.0.4 | autotools (data) | `gb16fs`, `gb16st`, `gb24st` (GB 2312) | nextbsd/nextbsd-xlibre#22 |
+| `font-adobe-75dpi` | 1.0.4 | autotools (data) | Adobe 75dpi Courier, Helvetica, New Century Schoolbook, Symbol, Times in `/usr/X11/share/fonts/X11/75dpi`, with its `fonts.dir` | nextbsd/nextbsd-xlibre#28 |
 | `font-alias` | 1.0.6 | autotools (data) | misc `fonts.alias`; `fonts.dir` for the misc directory | nextbsd/nextbsd-xlibre#22 |
 | `host-zlib`, `host-freetype`, `host-libfontenc`, `font-util`, `bdftopcf`, `mkfontscale` | 1.3.2, 2.15.0, 1.1.9, 1.4.2, 1.1.2, 1.2.4 | autotools, **build host only** | nothing shipped: the tools that make the fonts and `fonts.dir` | nextbsd/nextbsd-xlibre#22 |
 | `twm` | 1.0.13.1 | autotools | `/usr/X11/bin/twm`, `/usr/X11/share/X11/twm/system.twmrc`, `twm.1` | nextbsd/nextbsd-xlibre#18 |
@@ -245,7 +246,7 @@ FreeBSD's port builds (maintainer decision, 2026-10-25).
 | DRI drivers | GLX loads Mesa's DRI drivers from `/usr/X11/lib/dri`, given explicitly (`-Ddri_driver_path`, patch `0006`): upstream takes `dri.pc`'s `dridriverdir`, which pkgconf returns with the build sysroot in front (nextbsd/nextbsd-xlibre#20). The build checks `libglx.so` names only that directory, and that no shipped file names the build sysroot or checkout |
 | Modules | `/usr/X11/lib/xorg/modules/xlibre-25` (the loader searches it, then `xlibre-25.0` and `/usr/X11/lib/xorg/modules`). The drivers (nextbsd/nextbsd-xlibre#4) install there, `xorg-server.pc`'s `moduledir` (see [drivers](#drivers)) |
 | XKB | rules from `/usr/share/X11/xkb`, `xkbcomp` from `/usr/X11/bin`, compiled keymaps in `/var/db/xkb` (see [XKB paths](#xkb-paths)) |
-| Fonts | default font path `/usr/X11/share/fonts/X11/misc,built-ins`: the core bitmap fonts built here (see [fonts](#the-core-bitmap-fonts)), then the server's built-in `fixed` and `cursor` |
+| Fonts | default font path `/usr/X11/share/fonts/X11/misc,/usr/X11/share/fonts/X11/75dpi,built-ins`: the core bitmap fonts built here (see [fonts](#the-core-bitmap-fonts)), then the server's built-in `fixed` and `cursor` |
 | Log | `/var/log/Xorg.N.log` |
 | Configuration | read from `/usr/X11/etc/X11` and `/etc/X11` as upstream does; none is shipped here (it belongs in `nextbsd-overlays`). Of upstream's `share/X11/xorg.conf.d` snippets only `10-quirks.conf` ships; its NVIDIA ones (Linux `nvidia-drm`, and Debian copies in `etc/`) are removed, as NVIDIA's configuration belongs with the NVIDIA bundle (D15). FreeBSD's `20-evdev-kbd.conf` is not needed: the default XKB rules are already `evdev` |
 | SHA-1 | the base's `libmd` |
@@ -383,12 +384,14 @@ and as the ISO 8859-1 to -16, KOI8-R and JIS X 0201 subsets),
 (JIS X 0208), `font-daewoo-misc` (KS C 5601) and `font-isas-misc` (GB 2312),
 16 and 24 pixels only, and `font-alias` (the misc `fonts.alias`:
 `fixed`, `variable`, `6x13`, ...) are installed as gzip-compressed PCF in
-`/usr/X11/share/fonts/X11/misc`, X.Org's default layout under the prefix
-(`$datadir/fonts/X11/<dir>`), with a `fonts.dir` for the whole directory. The
-server's default font path is that directory, then `built-ins`
+`/usr/X11/share/fonts/X11/misc`, and `font-adobe-75dpi` (Helvetica for twm's
+stock `system.twmrc`, nextbsd/nextbsd-xlibre#28) in
+`/usr/X11/share/fonts/X11/75dpi`, X.Org's default layout under the prefix
+(`$datadir/fonts/X11/<dir>`), each with a `fonts.dir` for the whole directory.
+The server's default font path is misc, then 75dpi, then `built-ins`
 (nextbsd/nextbsd-xlibre#22: xterm's default `-misc-fixed-...-iso10646-1` and
-twm's `fixed` fontset need them). The 75dpi, 100dpi and cyrillic aliases
-`font-alias` also installs are dropped (those fonts are not shipped).
+twm's fontsets need them). The 75dpi (B&H Lucida), 100dpi and cyrillic
+aliases `font-alias` also installs are dropped (those fonts are not shipped).
 
 Making them needs tools that run on the build host: `bdftopcf`, font-util's
 `ucs2any` and encoding maps, and `mkfontdir` (`mkfontscale`), with

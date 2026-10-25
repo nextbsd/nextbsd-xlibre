@@ -70,6 +70,9 @@ font-cursor-misc    1.0.4         25d9c9595013cb8ca08420509993a6434c917e53ca1fec
 font-jis-misc       1.0.4         78d1eff6c471f7aa6802a26d62cccf51d8e5185586406d9b6e1ee691b0bffad0  https://xorg.freedesktop.org/archive/individual/font/font-jis-misc-1.0.4.tar.xz
 font-daewoo-misc    1.0.4         f63c8b3dc8f30098cb868b7db2c2c0c8b5b3fd2cefd044035697a43d4c7a4f31  https://xorg.freedesktop.org/archive/individual/font/font-daewoo-misc-1.0.4.tar.xz
 font-isas-misc      1.0.4         47e595bbe6da444b9f6fcaa26539abc7ba1989e23afa6cdc49e22e484cc438fc  https://xorg.freedesktop.org/archive/individual/font/font-isas-misc-1.0.4.tar.xz
+# font-adobe-75dpi (nextbsd-xlibre#28): Helvetica for twm's stock system.twmrc.
+# SHA-256 matches FreeBSD ports' x11-fonts/font-adobe-75dpi distinfo.
+font-adobe-75dpi    1.0.4         1281a62dbeded169e495cae1a5b487e1f336f2b4d971d92911c59c103999b911  https://xorg.freedesktop.org/archive/individual/font/font-adobe-75dpi-1.0.4.tar.xz
 font-alias          1.0.6         f6a5e968b616e728a981fd1fd9ed5fe2ca0fe18fbe072b1888cb3f71b701e4c0  https://xorg.freedesktop.org/archive/individual/font/font-alias-1.0.6.tar.xz
 
 # ---- the session clients the stock xinitrc starts (nextbsd-xlibre#18, #22), in build order ----

@@ -137,7 +137,7 @@ lock_field() {
 # cannot exec target binaries on the runner).
 needed_check() {
     local obj="$1" want="$2"
-    "$CROSS_BINDIR/llvm-readelf" -d "$obj" 2>/dev/null | grep -q "NEEDED.*\[$want" \
+    "$CROSS_BINDIR/llvm-readelf" -d "$obj" 2>/dev/null | grep "NEEDED.*\[$want" >/dev/null \
         || fail "$obj missing DT_NEEDED $want"
     note "DT_NEEDED ok: $(basename "$obj") -> $want"
 }
@@ -172,7 +172,7 @@ needed_resolve() {
 # Assert a staged shared library carries the upstream soname.
 soname_check() {
     local lib="$1" want="$2"
-    "$CROSS_BINDIR/llvm-readelf" -d "$lib" 2>/dev/null | grep -q "SONAME.*\[$want\]" \
+    "$CROSS_BINDIR/llvm-readelf" -d "$lib" 2>/dev/null | grep "SONAME.*\[$want\]" >/dev/null \
         || fail "$lib does not have SONAME $want"
     note "SONAME ok: $want"
 }
@@ -716,8 +716,9 @@ build_libpciaccess() {
 # xkbcomp from /usr/X11/bin; compiled keymaps in /var/db/xkb, a directory
 # this repo ships (the server writes there only if it can, otherwise in
 # $XDG_RUNTIME_DIR or /tmp); logs in /var/log (Xorg.N.log); the default font path is
-# /usr/X11/share/fonts/X11/misc (the core bitmap fonts built below,
-# nextbsd-xlibre#22), then the built-in fonts. Configuration is
+# /usr/X11/share/fonts/X11/misc and /usr/X11/share/fonts/X11/75dpi (the core
+# bitmap fonts built below, nextbsd-xlibre#22 and #28), then the built-in
+# fonts. Configuration is
 # read from /usr/X11/etc/X11 and /etc/X11 as upstream does; none is shipped
 # here (it belongs in nextbsd-overlays). SHA-1 from the base's libmd; no
 # libunwind, DTrace, SELinux, docs or tests; the inputtest driver is off.
@@ -744,7 +745,7 @@ build_xlibre_xserver() {
         -Dxf86-input-inputtest=false \
         -Dsha1=libmd -Dxcsecurity=true -Dfallback_input_driver=libinput \
         -Dlegacy_nvidia_padding="$nvidia" \
-        -Dlog_dir=/var/log -Ddefault_font_path="$X_PREFIX/share/fonts/X11/misc,built-ins" \
+        -Dlog_dir=/var/log -Ddefault_font_path="$X_PREFIX/share/fonts/X11/misc,$X_PREFIX/share/fonts/X11/75dpi,built-ins" \
         -Dxkb_dir="$XKB_DIR" -Dxkb_bin_dir="$X_PREFIX/bin" \
         -Dxkb_output_dir="$XKM_DIR" -Ddri_driver_path="$X_PREFIX/lib/dri"
     # 25.1.9 installs upstream's NVIDIA OutputClass snippets (from
@@ -815,7 +816,7 @@ build_xlibre_xserver() {
     no_build_rpath "$xorg"
     # The paths compiled in.
     for s in /var/log "$X_PREFIX/bin" "$X_PREFIX/lib/xorg/modules" "$XKM_DIR/" \
-             "$X_PREFIX/share/fonts/X11/misc,built-ins"; do
+             "$X_PREFIX/share/fonts/X11/misc,$X_PREFIX/share/fonts/X11/75dpi,built-ins"; do
         grep -q -a -F "$s" "$xorg" || fail "Xorg does not name $s"
     done
     xkb_path_check "$xorg" Xorg
@@ -1425,17 +1426,16 @@ build_mkfontscale() {
 # The package's own mkfontdir run is skipped (MKFONTDIR=true): it would index
 # only that package's fonts; build_font_alias writes fonts.dir once for the
 # whole directory. No fc-cache: these are core X fonts, not fontconfig's.
-# make runs serially: font-misc-misc's suffix rules (ucs2any, bdftruncate,
-# bdftopcf) are not safe in parallel, and one CI run produced a misc
-# directory whose fonts.dir lacked the ISO8859-1 13-120 fixed font
-# (nextbsd-xlibre#22); the fonts take seconds either way.
+# make runs serially (the fonts take seconds either way) and with pipefail,
+# so a failing bdftopcf in `bdftopcf -t x.bdf | gzip > x.pcf.gz` fails the
+# build instead of leaving a broken x.pcf.gz behind gzip's exit status.
 font_build() {
     (
         cd "$COMP_BUILD"
         host_env MKFONTDIR=true FCCACHE= "$SRC_DIR/configure" \
             --prefix="$X_PREFIX" --with-fontrootdir="$X_PREFIX/share/fonts/X11" \
             --disable-silent-rules "$@"
-        host_env make -j1
+        host_env make -j1 SHELL=/bin/bash .SHELLFLAGS="-o pipefail -c"
         host_env make install DESTDIR="$COMP_ROOT"
     )
 }
@@ -1509,6 +1509,42 @@ UTF8_FONTSET_CHARSETS="iso8859-1 iso8859-2 iso8859-3 iso8859-4 iso8859-5 koi8-r
     iso8859-7 iso8859-9 iso8859-13 iso8859-14 iso8859-15 jisx0208.1983-0
     ksc5601.1987-0 gb2312.1980-0 jisx0201.1976-0 iso10646-1"
 
+# fonts_dir_check <dir>: <dir>/fonts.dir is well formed, every file it names
+# is in <dir>, and every font file in <dir> is in it (mkfontdir skips a file
+# it cannot identify, e.g. a damaged PCF).
+#
+# Under `set -o pipefail` a pipeline must not end in `grep -q`: grep exits at
+# the first match, the writer before it can then die of SIGPIPE, and the
+# pipeline fails although the line is there. That made the fonts.dir checks
+# fail at random (#27's "fonts.dir has no ...-iso8859-1", #28's "staged but
+# not in fonts.dir"); here and in needed_check/soname_check grep reads all
+# its input (>/dev/null) instead.
+fonts_dir_check() {
+    local d="$1" n f
+    n=$(head -1 "$d/fonts.dir")
+    [ "$n" -gt 0 ] && [ "$n" -eq "$(($(wc -l < "$d/fonts.dir") - 1))" ] || fail "$d/fonts.dir is malformed"
+    for f in $(sed 1d "$d/fonts.dir" | awk '{print $1}' | sort -u); do
+        test -f "$d/$f" || fail "fonts.dir names $f, which is not staged"
+    done
+    for f in $(cd "$d" && ls | grep '\.pcf\.gz$'); do
+        if ! sed 1d "$d/fonts.dir" | awk '{print $1}' | grep -x -F -e "$f" >/dev/null; then
+            ls -l "$d/$f" >&2
+            fail "$f is staged but not in $d/fonts.dir"
+        fi
+    done
+}
+
+# fonts_dir_has <dir> <xlfd>...: each <xlfd> is a font name in <dir>/fonts.dir.
+fonts_dir_has() {
+    local d="$1" want
+    shift
+    for want in "$@"; do
+        sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -x -F -e "$want" >/dev/null \
+            || fail "$d/fonts.dir has no $want"
+        note "fonts.dir: $want"
+    done
+}
+
 # font-alias 1.0.6 — the misc directory's fonts.alias (fixed, variable,
 # 6x13, ...), and fonts.dir for the whole misc directory. Upstream also
 # installs aliases for the 75dpi, 100dpi and cyrillic directories, whose
@@ -1528,23 +1564,12 @@ build_font_alias() {
         || fail "the misc fonts are not in the sysroot; build font-misc-misc and font-cursor-misc first"
     host_env mkfontdir -o "$COMP_ROOT$FONT_MISC_DIR/fonts.dir" "$SYSROOT$FONT_MISC_DIR"
     stage font-alias
-    local d="$DESTDIR$FONT_MISC_DIR" n f want
+    local d="$DESTDIR$FONT_MISC_DIR" n want
+    fonts_dir_check "$d"
     n=$(head -1 "$d/fonts.dir")
-    [ "$n" -gt 0 ] && [ "$n" -eq "$(($(wc -l < "$d/fonts.dir") - 1))" ] || fail "fonts.dir is malformed"
-    for f in $(sed 1d "$d/fonts.dir" | awk '{print $1}' | sort -u); do
-        test -f "$d/$f" || fail "fonts.dir names $f, which is not staged"
-    done
-    # ... and every font file staged is in fonts.dir (mkfontdir skips a file
-    # it cannot identify, e.g. a damaged PCF).
-    for f in $(cd "$d" && ls | grep '\.pcf\.gz$'); do
-        if ! sed 1d "$d/fonts.dir" | awk '{print $1}' | grep -q -x -F "$f"; then
-            ls -l "$d/$f" >&2
-            fail "$f is staged but not in fonts.dir"
-        fi
-    done
     for want in '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso10646-1' \
                 '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1' 'cursor'; do
-        if ! sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -q -x -F -e "$want"; then
+        if ! sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -x -F -e "$want" >/dev/null; then
             grep -e '-13-120-75-75-c-60-' "$d/fonts.dir" >&2 || true
             fail "fonts.dir has no $want"
         fi
@@ -1566,6 +1591,37 @@ build_font_alias() {
         [ -n "$sizes" ] || fail "fonts.dir has no font for the UTF-8 fontset charset $cs"
         note "UTF-8 fontset charset $cs: pixel sizes $sizes"
     done
+}
+
+# font-adobe-75dpi 1.0.4 — Adobe's 75dpi Courier, Helvetica, New Century
+# Schoolbook, Symbol and Times bitmaps (nextbsd-xlibre#28): twm's stock
+# system.twmrc asks for -adobe-helvetica-bold-r-normal at 120 and 100 points
+# (titles, menus, icons, the icon manager, the size window), and without
+# Helvetica twm falls back to `fixed`. Each font as ISO 10646-1 and as
+# upstream's ISO 8859-1, -2, -3, -4, -9, -10, -13, -14 and -15 subsets, in
+# /usr/X11/share/fonts/X11/75dpi, second on the default font path. It is the
+# only package in that directory, so its fonts.dir is written right after
+# its install, with the build host's mkfontdir. font-alias's 75dpi aliases
+# (B&H Lucida, not shipped) are not installed.
+FONT_75DPI_DIR="$X_PREFIX/share/fonts/X11/75dpi"
+build_font_adobe_75dpi() {
+    comp "font-adobe-75dpi [fonts, native]"
+    fresh_dirs font-adobe-75dpi
+    fetch font-adobe-75dpi
+    font_build
+    host_env mkfontdir "$COMP_ROOT$FONT_75DPI_DIR"
+    stage font-adobe-75dpi
+    local d="$DESTDIR$FONT_75DPI_DIR"
+    fonts_dir_check "$d"
+    fonts_dir_has "$d" \
+        '-adobe-helvetica-bold-r-normal--12-120-75-75-p-70-iso8859-1' \
+        '-adobe-helvetica-bold-r-normal--10-100-75-75-p-60-iso8859-1' \
+        '-adobe-helvetica-bold-r-normal--12-120-75-75-p-70-iso10646-1'
+    note "fonts.dir: $(head -1 "$d/fonts.dir") entries, $(ls "$d" | grep -c '\.pcf\.gz$') font files in $FONT_75DPI_DIR"
+    note "charsets of -adobe-helvetica-bold-r-normal--12-120-75-75-p-70 (twm's 120-point fonts):"
+    sed 1d "$d/fonts.dir" | awk '{print $2}' \
+        | sed -n 's/^-adobe-helvetica-bold-r-normal--12-120-75-75-p-70-//p' | sort -u | tr '\n' ' '
+    echo
 }
 
 # =============================================================================
@@ -1727,6 +1783,7 @@ COMPONENTS="
     font-daewoo-misc
     font-isas-misc
     font-alias
+    font-adobe-75dpi
     twm
     xclock
     xterm
