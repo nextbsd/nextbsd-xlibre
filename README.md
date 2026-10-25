@@ -7,29 +7,40 @@ repos in E23
 epic nextbsd/nextbsd#561, step 9 onwards), built by hand in this order:
 
 ```
-nextbsd-toolchain   clang/lld 19.1.7 (+ the tiny static LLVM for llvmpipe)
+nextbsd-toolchain               clang/lld 19.1.7 (+ the tiny static LLVM for llvmpipe)
         │
-nextbsd-xlibs       libdrm + the X client libraries
+nextbsd-displayserver-support   libdrm, pixman, fonts, xkb data, input stack (/usr)
         │
-nextbsd-mesa        Mesa + libglvnd
+nextbsd-xlibs                   the X client libraries
         │
-nextbsd-xlibre      the XLibre server, drivers, input stack, xkb, tools   <- this repo
+nextbsd-mesa                    Mesa + libglvnd
+        │
+nextbsd-xlibre                  the XLibre server, drivers, xkbcomp, tools   <- this repo
 ```
 
-So far it builds the server's support libraries and the XKB keymap data and
-compiler (nextbsd/nextbsd-xlibre#1), the input stack: libudev-devd, libevdev,
-mtdev and libinput with its quirks (nextbsd/nextbsd-xlibre#2), and the XLibre
-server 25.2.2 with modesetting and glamor (nextbsd/nextbsd-xlibre#3), its
-input and video drivers (nextbsd/nextbsd-xlibre#4), and the X.Org tools xauth,
-xinit (with startx), xset, setxkbmap, xinput and xrandr
-(nextbsd/nextbsd-xlibre#5). No fonts are built: the server has built-in fonts.
+It builds the server's support libraries and the XKB keymap compiler
+(nextbsd/nextbsd-xlibre#1), the XLibre server 25.2.2 with modesetting and
+glamor (nextbsd/nextbsd-xlibre#3), its input and video drivers
+(nextbsd/nextbsd-xlibre#4), and the X.Org tools xauth, xinit (with startx),
+xset, setxkbmap, xinput and xrandr (nextbsd/nextbsd-xlibre#5). No fonts are
+built: the server has built-in fonts.
+
+**What both display servers share is not built here.** The XKB data
+(xkeyboard-config), epoll-shim, libudev-devd, libevdev, mtdev, libinput and the
+`<linux/input.h>` shim (once nextbsd/nextbsd-xlibre#1, #2 and #4), like
+libdrm, pixman, the font stack and libxkbcommon (once in `nextbsd-xlibs`),
+moved to
+[`nextbsd-displayserver-support`](https://github.com/nextbsd/nextbsd-displayserver-support)
+(E25, [plan](https://github.com/nextbsd/nextbsd-userland/wiki/E25-Display-Server-Support-Plan),
+nextbsd/nextbsd-xlibre#12) at the same versions, and install in **`/usr`**
+(E25 D4). The server and drivers link them from `/usr/lib`, and the server,
+`xkbcomp` and `setxkbmap` read the XKB data from `/usr/share/X11/xkb` (see
+[XKB paths](#xkb-paths)).
 
 ## Rules
 
 1. **Pinned upstream sources only.** Every component is a release tarball (or
    tag archive) listed in `sources.lock` with its version, URL and SHA-256.
-   The one exception is `linux-input-shim`, three one-line headers written by
-   the build script itself (see [drivers](#drivers)).
    Not FreeBSD packages, not the ports tree or ports tools, not NetBSD's `xsrc`
    or OpenBSD's `xenocara`. Those, and FreeBSD's port patches, may be read as
    references.
@@ -44,17 +55,20 @@ xinit (with startx), xset, setxkbmap, xinput and xrandr
    `/usr/X11/bin`. Nothing goes in `/usr/local`, nothing here ships `/etc`
    (configuration belongs in `nextbsd-overlays`; `/usr/X11/etc` holds only
    xinit's default `xinitrc`, see [tools](#the-tools)), and nothing may replace a
-   file of the base, of `nextbsd-xlibs` or of `nextbsd-mesa`. The one file
-   outside `/usr/X11` is the `org.nextbsd.xlibre` LaunchAgent in
-   `/System/Library/LaunchAgents` (see [on-demand start](#on-demand-start)).
-5. **Only the NextBSD base sysroot and the earlier X repos are linked
+   file of the base, of `nextbsd-displayserver-support`, of `nextbsd-xlibs` or
+   of `nextbsd-mesa`. Outside `/usr/X11` there are only the
+   `org.nextbsd.xlibre` LaunchAgent in `/System/Library/LaunchAgents` (see
+   [on-demand start](#on-demand-start)) and the empty `/var/db/xkb`, where the
+   server writes compiled keymaps.
+5. **Only the NextBSD base sysroot and the repos before this one are linked
    against** (compat's `continuous` base, then the `continuous` artifacts of
-   `nextbsd-xlibs` and `nextbsd-mesa`), never `nextbsd-userland` (`Xorg -launchd`
-   loads its liblaunch only at run time). Build tools come from the toolchain
-   image and never ship.
+   `nextbsd-displayserver-support`, `nextbsd-xlibs` and `nextbsd-mesa`), never
+   `nextbsd-userland` (`Xorg -launchd` loads its liblaunch only at run time).
+   Build tools come from the toolchain image and never ship.
 6. **pkgconf, never freedesktop's GPL pkg-config.** No D-Bus, Avahi, udev or
-   Wayland. (`libudev-devd` provides the libudev API on NextBSD's devfs and
-   sysctl; it is not udev, and no udev rules ship.)
+   Wayland. (The libudev in `nextbsd-displayserver-support`, libudev-devd,
+   provides the libudev API on NextBSD's devfs and sysctl; it is not udev, and
+   no udev rules ship.)
 
 ## Layout
 
@@ -81,18 +95,28 @@ unpacks into `.build/src/` and builds out of tree under `.build/`.
 pinned clang/lld 19.1.7 in `/usr/lib/llvm-19`, meson, ninja, cmake, pkgconf,
 autotools, X.Org util-macros, python3, perl and bison) with compat's
 `continuous` base extracted as the sysroot and the `continuous` artifacts of
-`nextbsd-xlibs` and then `nextbsd-mesa` extracted on top, the same way `nextbsd-printing-support` stages the
-repos it builds against. It needs:
+`nextbsd-displayserver-support`, `nextbsd-xlibs` and then `nextbsd-mesa`
+extracted on top, the same way `nextbsd-printing-support` stages the repos it
+builds against. Until nextbsd/nextbsd-xlibs#9, `nextbsd-xlibs`' artifact still
+carries its old `/usr/X11` copies of libdrm, pixman, expat, freetype,
+fontconfig and libxkbcommon (the same versions); the workflow removes from the
+sysroot every `/usr/X11` file that `nextbsd-displayserver-support` ships under
+`/usr`, so only the `/usr` copies are found. It needs:
 
 | Variable | Meaning |
 |---|---|
 | `T` | target: `amd64` or `arm64` |
 | `TA` | FreeBSD `TARGET_ARCH`: `amd64` or `aarch64` |
-| `SYSROOT` | the staged NextBSD base with `nextbsd-xlibs` and `nextbsd-mesa` in `/usr/X11`; scratch, since each component is installed into its `/usr/X11` |
+| `SYSROOT` | the staged NextBSD base with `nextbsd-displayserver-support` in `/usr` and `nextbsd-xlibs` and `nextbsd-mesa` in `/usr/X11`; scratch, since each component is installed into its `/usr/X11` |
 | `CROSS_BINDIR` | the toolchain's clang, lld and LLVM binutils (set by the container image) |
 | `DESTDIR` | where to stage the artifact; default `/stage` |
 
-For each component, in `COMPONENTS` order, it:
+First it checks the sysroot (`check_displayserver_support`): every module that
+moved to `nextbsd-displayserver-support` resolves through pkgconf to its `.pc`
+in `/usr/libdata/pkgconfig` with `prefix=/usr`, each moved library is in
+`/usr/lib` and has no copy in `/usr/X11/lib`, and the XKB data resolves
+through `/usr/share/X11/xkb`. The log says where each one came from. Then, for
+each component, in `COMPONENTS` order, it:
 
 1. downloads the tarball named in `sources.lock`, refuses it unless the SHA-256
    matches, and unpacks it;
@@ -107,19 +131,24 @@ For each component, in `COMPONENTS` order, it:
      `CMAKE_INSTALL_PREFIX=/usr/X11`, shared libraries;
    - **autotools** in `--host=<triple>` mode with
      `CONFIG_SITE=cross/autotools/<arch>.site`, `--with-sysroot`, shared only
-     (mtdev, and the drivers after `autoreconf -fi`);
+     (the drivers after `autoreconf -fi`, and some tools);
 4. checks and tidies the install (all of it under `/usr/X11`; nothing that
-   would replace a file of the base, of `nextbsd-xlibs` or of `nextbsd-mesa`; no `.la` files or
+   would replace a file already in the sysroot, that is of the base, of
+   `nextbsd-displayserver-support`, of `nextbsd-xlibs` or of `nextbsd-mesa`; no `.la` files or
    docs; `.pc` files moved from `share/pkgconfig` or `libdata/pkgconfig` to
    `lib/pkgconfig`; no `.pc` naming `/usr/local` or a build path, no CMake
    package file naming a build path), then copies it into the sysroot, so
    later components find it, and into `DESTDIR`;
 5. checks each library's upstream soname and the libraries it links
-   (`llvm-readelf -d`), and that its `.pc` resolves through pkgconf.
+   (`llvm-readelf -d`), and that its `.pc` resolves through pkgconf. For the
+   server, its modules, the drivers and the tools, every library linked must be
+   in the sysroot, and the moved ones in `/usr/lib`; the log shows where each
+   resolves.
 
 pkgconf only searches the sysroot (`/usr/X11/lib/pkgconfig`, then
-`/usr/libdata/pkgconfig`) with `PKG_CONFIG_SYSROOT_DIR` set, so nothing from
-the Linux host leaks into a build.
+`/usr/libdata/pkgconfig`: the base's and `nextbsd-displayserver-support`'s)
+with `PKG_CONFIG_SYSROOT_DIR` set, so nothing from the Linux host leaks into a
+build.
 
 ```
 ./build-xlibre.sh               # every component
@@ -129,22 +158,16 @@ the Linux host leaks into a build.
 
 ## Components
 
-In build order (E23 audit 3, section 2.2). pixman, once planned here, is built
-by `nextbsd-xlibs` (E24 Q5) and comes from its artifact, as do libxkbfile and
-the X client libraries.
+In build order (E23 audit 3, section 2.2). libxkbfile and the X client
+libraries come from `nextbsd-xlibs`' artifact; libdrm, pixman, the XKB data
+and the input stack from `nextbsd-displayserver-support`'s.
 
 | Component | Version | Build | Installs | Ticket |
 |---|---|---|---|---|
-| `epoll-shim` | 0.0.20240608 | CMake | `libepoll-shim.so.0`, `libepoll-shim-interpose.so.0`, `include/libepoll-shim/sys/{epoll,signalfd}.h`, `epoll-shim.pc` (the server's meson requires it on FreeBSD). eventfd and timerfd come from NextBSD's libc | nextbsd/nextbsd-xlibre#1 |
 | `khronos-headers` | libglvnd 1.7.0 | headers | `EGL/` and `KHR/` headers, **sysroot only** (build input for libepoxy; not in the artifact, see [libepoxy](#libepoxy-and-mesa)) | nextbsd/nextbsd-xlibre#1 |
 | `libepoxy` | 1.5.10 | meson | `libepoxy.so.0`, `epoxy/` headers, GLX and EGL dispatch | nextbsd/nextbsd-xlibre#1 |
 | `libxcvt` | 0.1.3 | meson | `libxcvt.so.0`, `/usr/X11/bin/cvt` | nextbsd/nextbsd-xlibre#1 |
-| `xkeyboard-config` | 2.48 | meson | the XKB database in `/usr/X11/share/xkeyboard-config-2`, with `/usr/X11/share/X11/xkb` linking to it; `xkeyboard-config.pc` (no NLS, no man page) | nextbsd/nextbsd-xlibre#1 |
-| `xkbcomp` | 1.5.0 | meson | `/usr/X11/bin/xkbcomp`, `xkbcomp.pc` | nextbsd/nextbsd-xlibre#1 |
-| `libudev-devd` | 0.7.0 | meson | `libudev.so.0`, `libudev.h`, `libudev.pc` (unmodified; see [input](#input-stack)) | nextbsd/nextbsd-xlibre#2 |
-| `libevdev` | 1.14.0 | meson | `libevdev.so.2`, `include/libevdev-1.0/libevdev/`, the `libevdev-tweak-device`, `mouse-dpi-tool` and `touchpad-edge-detector` tools | nextbsd/nextbsd-xlibre#2 |
-| `mtdev` | 1.1.7 | autotools | `libmtdev.so.1`, `mtdev.h`, `mtdev-test` | nextbsd/nextbsd-xlibre#2 |
-| `libinput` | 1.32.0 | meson | `libinput.so.10`, `libinput.h`, the `libinput` tool and its helpers in `/usr/X11/libexec/libinput`, the quirks database in `/usr/X11/share/libinput` | nextbsd/nextbsd-xlibre#2 |
+| `xkbcomp` | 1.5.0 | meson | `/usr/X11/bin/xkbcomp`, `xkbcomp.pc` (XKB root `/usr/share/X11/xkb`) | nextbsd/nextbsd-xlibre#1 |
 | `libpciaccess` | 0.19 | meson | `libpciaccess.so.0`, `pciaccess.h`; `/usr/X11/share/hwdata/pci.ids` links to the base's `/usr/share/misc/pci_vendors` | nextbsd/nextbsd-xlibre#3 |
 | `xlibre-xserver` | 25.2.2 | meson | `/usr/X11/bin/Xorg` (and `X`), its modules in `/usr/X11/lib/xorg/modules/xlibre-25` (modesetting, glamoregl, glx, exa, fbdevhw, int10, shadow, shadowfb, vgahw, wfb), the Xorg SDK (`include/xorg`, `xorg-server.pc`) for the drivers, `protocol.txt`, man pages. 4 FreeBSD port patches (see [server](#the-x-server)) | nextbsd/nextbsd-xlibre#3 |
 | `xauth` | 1.1.5 | autotools | `/usr/X11/bin/xauth`, `xauth.1` | nextbsd/nextbsd-xlibre#5 |
@@ -153,7 +176,6 @@ the X client libraries.
 | `setxkbmap` | 1.3.5 | meson | `/usr/X11/bin/setxkbmap`, `setxkbmap.1` | nextbsd/nextbsd-xlibre#5 |
 | `xinput` | 1.6.4 | autotools | `/usr/X11/bin/xinput`, `xinput.1` | nextbsd/nextbsd-xlibre#5 |
 | `xrandr` | 1.5.4 | meson | `/usr/X11/bin/xrandr`, `xrandr.1` (not `xkeystone`, a script for the nickle interpreter) | nextbsd/nextbsd-xlibre#5 |
-| `linux-input-shim` | NextBSD | headers | `/usr/X11/include/linux/{input,input-event-codes,uinput}.h`, each one `#include` of the base's `<dev/evdev/…>` header (see [drivers](#drivers)) | nextbsd/nextbsd-xlibre#4 |
 | `xf86-input-libinput` | 25.0.1 | autotools | `input/libinput_drv.so`, `libinput-properties.h`, `xorg-libinput.pc`, `40-libinput.conf`, `libinput.4x` | nextbsd/nextbsd-xlibre#4 |
 | `xf86-input-evdev` | 25.0.0 | autotools | `input/evdev_drv.so`, `evdev-properties.h`, `10-evdev.conf`, `evdev.4x` | nextbsd/nextbsd-xlibre#4 |
 | `xf86-input-joystick` | 25.0.0 | autotools | `input/joystick_drv.so` (BSD usbhid and evdev backends), `joystick-properties.h`, `joystick.4x` | nextbsd/nextbsd-xlibre#4 |
@@ -169,28 +191,28 @@ covers only this repo's harness.
 
 ### XKB paths
 
+The XKB data is `nextbsd-displayserver-support`'s xkeyboard-config (E25,
+nextbsd/nextbsd-xlibre#12). The server, `xkbcomp` and `setxkbmap` are built
+for its paths, and the build checks each names `/usr/share/X11/xkb` and not the
+old `/usr/X11/share/X11/xkb`.
+
 | What | Path |
 |---|---|
-| Keymap database | `/usr/X11/share/xkeyboard-config-2` (rules, symbols, keycodes, types, compat, geometry) |
-| Legacy XKB root | `/usr/X11/share/X11/xkb`, a link to the above. `nextbsd-xlibs`' libxkbcommon (`-Dxkb-config-root`) and `xkbcomp` (`-Dxkb-config-root`) both use this path, and the server will too |
-| Compiler | `/usr/X11/bin/xkbcomp` |
+| Keymap database | `/usr/share/xkeyboard-config-2` (rules, symbols, keycodes, types, compat, geometry) |
+| XKB root | `/usr/share/X11/xkb`, a link to the above: the server (`-Dxkb_dir`), `xkbcomp` and `setxkbmap` (`-Dxkb-config-root`), and `nextbsd-displayserver-support`'s libxkbcommon |
+| Compiler | `/usr/X11/bin/xkbcomp` (the server's `-Dxkb_bin_dir`) |
+| Compiled keymaps | `/var/db/xkb` (the server's `-Dxkb_output_dir`), an empty directory this repo ships. The server writes there only if it can, and otherwise in `$XDG_RUNTIME_DIR` or `/tmp` |
 
-### Input stack
+### Input
 
-libinput reads the kernel's evdev(4) nodes (`/dev/input/event*`) and finds
-them through `libudev-devd`, which implements the libudev API on NextBSD's
-devfs, sysctl and devinfo. X uses it through `xf86-input-libinput` (a later
-step), and the Mouse settings set libinput's properties.
-
-| What | Choice |
-|---|---|
-| `libudev-devd` | 0.7.0, unmodified (E23 D10); GPL code off. Devices are enumerated when X starts. Its hotplug monitor listens on devd's socket, and NextBSD has no devd, so a device that appears later is not seen until X restarts. Hotplug through IOKit is later work (nextbsd/nextbsd#482) |
-| `libinput` options | mtdev on; libwacom, Lua plugins, `debug-gui`, tests, docs and zsh completion off |
-| epoll | `epoll-shim` from this repo (`-Depoll-dir` points into the sysroot) |
-| Quirks | `/usr/X11/share/libinput/*.quirks`; the local override file is `/usr/X11/etc/libinput/local-overrides.quirks` (not shipped) |
-| udev rules and callouts | removed from the install (as FreeBSD's port does): no udevd runs them |
-| `linux/input.h` | `libevdev` and `libinput` build with the copies in their tarballs; `mtdev` builds with a one-line build-only header that includes the base's `<dev/evdev/input.h>`. For the drivers and later builds, `linux-input-shim` ships the same header in `/usr/X11/include/linux` (see [drivers](#drivers)) |
-| `kern.evdev.rcpt_mask` | which kernel drivers deliver to evdev. Set in the image by `nextbsd-overlays` (`/etc/sysctl.conf`, applied by `launchctl` at boot), not here |
+libinput, libevdev, mtdev, libudev (libudev-devd) and `<linux/input.h>` are
+`nextbsd-displayserver-support`'s: libraries in `/usr/lib`, `.pc` files in
+`/usr/libdata/pkgconfig`, the quirks in `/usr/share/libinput`. X uses libinput
+through `xf86-input-libinput`, and the Mouse settings set libinput's
+properties. Devices are enumerated when X starts; NextBSD has no devd, so a
+device that appears later is not seen until X restarts (hotplug through IOKit
+is E25 D7). Which kernel drivers deliver to evdev (`kern.evdev.rcpt_mask`) is
+set in the image by `nextbsd-overlays` (`/etc/sysctl.conf`), not here.
 
 ### The X server
 
@@ -200,12 +222,12 @@ the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
 | What | Choice |
 |---|---|
 | Servers | `Xorg` only. Xvfb, Xnest, Xephyr, Xfbdev, XWin and XQuartz are off; no Xwayland |
-| Graphics (D9) | glamor, GBM, the modesetting driver, GLX with DRI, DRI2 and DRI3 on, against `nextbsd-mesa`'s libGL, libEGL and libgbm and this repo's libepoxy. On amd64 the legacy NVIDIA `ScreenRec` padding is on (as FreeBSD builds it), so NVIDIA's `nvidia_drv.so` loads |
-| Devices | the udev config backend and KMS device discovery (the platform bus) through `libudev-devd` (`-Dudev=true -Dudev_kms=true`, as FreeBSD's port); `libinput` is the fallback input driver. PCI through `libpciaccess` |
+| Graphics (D9) | glamor, GBM, the modesetting driver, GLX with DRI, DRI2 and DRI3 on, against `nextbsd-mesa`'s libGL, libEGL and libgbm, `nextbsd-displayserver-support`'s libdrm and pixman (in `/usr/lib`) and this repo's libepoxy. On amd64 the legacy NVIDIA `ScreenRec` padding is on (as FreeBSD builds it), so NVIDIA's `nvidia_drv.so` loads |
+| Devices | the udev config backend and KMS device discovery (the platform bus) through `nextbsd-displayserver-support`'s libudev (libudev-devd; `-Dudev=true -Dudev_kms=true`, as FreeBSD's port); `libinput` is the fallback input driver. PCI through `libpciaccess` |
 | Not built | HAL, systemd-logind, systemd notify, seatd/libseat, D-Bus, SELinux, DTrace, libunwind, docs, tests, the `inputtest` driver |
 | Privilege | **no suid wrapper** (`Xorg.wrap`). X is started as root by launchd/loginwindow, as today, so `Xorg` is a plain 0755 program in `/usr/X11/bin` (the build checks it is not set-uid). `startx` as a normal user needs root; a seat manager is later work |
 | Modules | `/usr/X11/lib/xorg/modules/xlibre-25` (the loader searches it, then `xlibre-25.0` and `/usr/X11/lib/xorg/modules`). The drivers (nextbsd/nextbsd-xlibre#4) install there, `xorg-server.pc`'s `moduledir` (see [drivers](#drivers)) |
-| XKB | rules from `/usr/X11/share/X11/xkb`, `xkbcomp` from `/usr/X11/bin`; compiled keymaps in `/var/run` (root-only, emptied at boot; the server falls back to `/tmp`) |
+| XKB | rules from `/usr/share/X11/xkb`, `xkbcomp` from `/usr/X11/bin`, compiled keymaps in `/var/db/xkb` (see [XKB paths](#xkb-paths)) |
 | Fonts | default font path `built-ins` only |
 | Log | `/var/log/Xorg.N.log` |
 | Configuration | read from `/usr/X11/etc/X11` and `/etc/X11` as upstream does; none is shipped here (it belongs in `nextbsd-overlays`). Of upstream's `share/X11/xorg.conf.d` snippets only `10-quirks.conf` ships; its NVIDIA ones (Linux `nvidia-drm`, and Debian copies in `etc/`) are removed, as NVIDIA's configuration belongs with the NVIDIA bundle (D15). FreeBSD's `20-evdev-kbd.conf` is not needed: the default XKB rules are already `evdev` |
@@ -219,7 +241,7 @@ the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
 | `0001` config/udev | a kbdmux keyboard gets the `device` option only if it can be opened; keyboards and pointers get `kbd`/`mouse` when the kernel has no evdev |
 | `0002` bsd_init | the console keyboard goes to `K_RAW` (and its termios is saved and restored) while X owns the VT, so keys don't reach the console tty |
 | `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.2.2 builds it only for Linux |
-| `0004` meson | takes epoll-shim's include path from its dependency (25.2.2 adds the build host's `/usr/X11/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
+| `0004` meson | takes epoll-shim's include path from its dependency (25.2.2 adds the build host's `<epoll-shim prefix>/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
 
 and one of NextBSD's own:
 
@@ -316,6 +338,7 @@ built by `nextbsd-gershwin-support` (E24). Each tool is in `/usr/X11/bin` with
 its man page in `/usr/X11/share/man/man1`, and links only the X client
 libraries in `/usr/X11/lib` (`nextbsd-xlibs`) and the base; the build checks
 each library it links resolves there and that no build-host RPATH is set.
+`setxkbmap` reads the XKB data from `/usr/share/X11/xkb`.
 
 | What | Choice |
 |---|---|
@@ -367,18 +390,17 @@ FreeBSD's ports at commit `efd79beed9`, each with its `Origin:`; all 11
 apply to the 25.0.0 tags unchanged and are carried. The other drivers have no
 port patches.
 
-**`linux/input.h`.** The installed `libevdev.h` and `mtdev.h` include
-`<linux/input.h>`, and so do the evdev, libinput, synaptics (eventcomm) and
-joystick (evdev backend) drivers. FreeBSD gets it from the `devel/evdev-proto`
-port (Linux's GPL uapi headers, `sed`-fixed for FreeBSD). NextBSD's base
-already has the BSD-licensed `<dev/evdev/input.h>`, `input-event-codes.h` and
-`uinput.h`, the same structures and ioctls, so `linux-input-shim` installs
-`/usr/X11/include/linux/{input,input-event-codes,uinput}.h`, each a single
-`#include` of the base header. It **ships** rather than staying build-only, so
-the headers this repo installs work as installed: a driver or program built
-later with `-I/usr/X11/include` finds it, as FreeBSD's ports find
-evdev-proto's. There is no `linux/joystick.h` or `linux/version.h`. The build
-checks that `libevdev.h` and `mtdev.h` compile against it.
+**`linux/input.h`.** The evdev, libinput, synaptics (eventcomm) and joystick
+(evdev backend) drivers include `<linux/input.h>`. It is
+`nextbsd-displayserver-support`'s `linux-input-shim`: three one-line headers
+in `/usr/include/linux-input-shim/linux` that include the base's BSD-licensed
+`<dev/evdev/…>` headers (the same structures and ioctls; FreeBSD's ports use
+`devel/evdev-proto`, Linux's GPL uapi headers, instead). The drivers get it
+through pkgconf, never through a path of this repo: `libevdev.pc` (evdev,
+synaptics) requires `linux-input-shim`, and libinput and joystick, which
+include `<linux/input.h>` without libevdev, get `pkgconf --cflags
+linux-input-shim` in `CPPFLAGS`. The build checks both carry the shim's
+directory. There is no `linux/joystick.h` or `linux/version.h`.
 
 ### libepoxy and Mesa
 
@@ -410,12 +432,17 @@ the `continuous` release, rooted at `/`.
 
 The artifact holds the whole `/usr/X11` install of this repo: libraries,
 programs, data, man pages, headers, `.pc` files and `.so` links, plus the
-`org.nextbsd.xlibre` LaunchAgent in `/System/Library/LaunchAgents`. Splitting
+`org.nextbsd.xlibre` LaunchAgent in `/System/Library/LaunchAgents` and the
+empty `/var/db/xkb`. Since nextbsd/nextbsd-xlibre#12 it no longer has
+epoll-shim, the XKB data, libudev, libevdev, mtdev, libinput or the
+`<linux/input.h>` shim: those are in `nextbsd-displayserver-support`'s
+artifact. Splitting
 runtime from development files, if wanted, is `nextbsd-pkg`'s job (E23 D13,
 `NextBSD-xlibre`).
 
 Nothing is dispatched from here, and nothing dispatches here. This repo is run
-by hand after `nextbsd-xlibs` and `nextbsd-mesa`, and `nextbsd-pkg` after it.
+by hand after `nextbsd-displayserver-support`, `nextbsd-xlibs` and
+`nextbsd-mesa`, and `nextbsd-pkg` after it.
 There is no boot lane: CI proves the cross build, and hardware checks are
 manual.
 
@@ -438,4 +465,6 @@ manual.
 4. Configure checks that must run a target program get their FreeBSD answers
    as cache variables in `cross/autotools/` (or `-D` cache entries for CMake),
    with the reason beside each.
-5. A row in `NOTICE.md` and in the table above.
+5. A row in `NOTICE.md` and in the table above. Libraries or data the
+   GNUstep WindowServer needs too belong in `nextbsd-displayserver-support`,
+   not here (E25 D3).
