@@ -37,6 +37,9 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `twm` | X.Org, `xorg/app/twm` | 1.0.13.1 | MIT/X11-style (`COPYING`) |
 | `font-misc-misc` | X.Org, `xorg/font/misc-misc` | 1.1.3 | public domain (`COPYING`) |
 | `font-cursor-misc` | X.Org, `xorg/font/cursor-misc` | 1.0.4 | public domain (`COPYING`) |
+| `font-jis-misc` | X.Org, `xorg/font/jis-misc` | 1.0.4 | from JIS X 9051-1984, by permission (`COPYING`) |
+| `font-daewoo-misc` | X.Org, `xorg/font/daewoo-misc` | 1.0.4 | Daewoo Electronics, permissive (`COPYING`) |
+| `font-isas-misc` | X.Org, `xorg/font/isas-misc` | 1.0.4 | MIT/X11-style, ISAS (`COPYING`) |
 | `font-alias` | X.Org, `xorg/font/alias` | 1.0.6 | MIT/X11-style (`COPYING`) |
 | `xclock` | X.Org, `xorg/app/xclock` | 1.2.1 | MIT/X11-style (`COPYING`) |
 | `xterm` | Thomas E. Dickey, invisible-island.net (`archives/xterm`) | 412 | MIT/X11-style (`COPYING`) |
