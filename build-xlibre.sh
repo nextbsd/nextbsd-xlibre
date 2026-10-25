@@ -1314,9 +1314,10 @@ FONT_MISC_DIR="$X_PREFIX/share/fonts/X11/misc"
 
 # host_env <command...>: run with the build host's compiler and only
 # $HOST_PREFIX's .pc files (no sysroot), its programs first on PATH. pkgconf
-# --static, since the host libraries are static.
+# --static, since the host libraries are static. DESTDIR (the artifact, in
+# the environment) is unset: host tools install into $HOST_PREFIX itself.
 host_env() {
-    env -u CONFIG_SITE CC=cc CFLAGS="-O2 -pipe" \
+    env -u CONFIG_SITE -u DESTDIR CC=cc CFLAGS="-O2 -pipe" \
         PKG_CONFIG="pkgconf --static" PKG_CONFIG_SYSROOT_DIR= \
         PKG_CONFIG_LIBDIR="$HOST_PREFIX/lib/pkgconfig:$HOST_PREFIX/share/pkgconfig" \
         PATH="$HOST_PREFIX/bin:$PATH" "$@"
