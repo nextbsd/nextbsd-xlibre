@@ -1436,7 +1436,7 @@ font_build() {
         host_env MKFONTDIR=true FCCACHE= "$SRC_DIR/configure" \
             --prefix="$X_PREFIX" --with-fontrootdir="$X_PREFIX/share/fonts/X11" \
             --disable-silent-rules "$@"
-        host_env make -j1
+        host_env make -j1 SHELL=/bin/bash .SHELLFLAGS="-o pipefail -c"
         host_env make install DESTDIR="$COMP_ROOT"
     )
 }
@@ -1523,6 +1523,8 @@ fonts_dir_check() {
     for f in $(cd "$d" && ls | grep '\.pcf\.gz$'); do
         if ! sed 1d "$d/fonts.dir" | awk '{print $1}' | grep -q -x -F "$f"; then
             ls -l "$d/$f" >&2
+            gzip -dc "$d/$f" | od -A d -t x1 | head -3 >&2 || true
+            gzip -dc "$d/$f" | wc -c >&2 || true
             fail "$f is staged but not in $d/fonts.dir"
         fi
     done
