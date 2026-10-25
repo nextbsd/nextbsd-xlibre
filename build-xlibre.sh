@@ -1114,8 +1114,10 @@ build_xf86_input_vmmouse() {
 
 # xf86-video-scfb 25.0.0 — the dumb framebuffer driver on the console's
 # framebuffer (vt(4)'s efifb/vbefb, or a boot-time framebuffer on arm64):
-# no acceleration, the fallback when modesetting has no KMS device. No
-# patches.
+# no acceleration, the fallback when modesetting has no KMS device.
+# patches/xf86-video-scfb/0001 builds it without its developer tracing
+# (upstream defines DEBUG 1: "scfb trace: probe start", "scfb: PreInit 1"
+# on stderr and in the log; nextbsd-xlibre#22).
 build_xf86_video_scfb() {
     comp "xf86-video-scfb [autotools cross]"
     fresh_dirs xf86-video-scfb
@@ -1123,6 +1125,10 @@ build_xf86_video_scfb() {
     xdriver_build
     stage xf86-video-scfb
     drv_check drivers/scfb_drv.so
+    if grep -a -o -e 'scfb trace: [a-z ]*' -e 'scfb: [A-Za-z]* %d' "$DESTDIR$XORG_MODULE_DIR/drivers/scfb_drv.so"; then
+        fail "scfb_drv.so still has its debug tracing"
+    fi
+    note "scfb_drv.so: no debug tracing"
     test -f "$DESTDIR$X_PREFIX/share/man/man4/scfb.4x" || fail "scfb.4x not staged"
 }
 

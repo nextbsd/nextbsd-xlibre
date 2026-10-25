@@ -47,7 +47,7 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `xf86-input-mouse` | X11Libre, `X11Libre/xf86-input-mouse` (tag `xlibre-xf86-input-mouse-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`). Patches in `patches/xf86-input-mouse/` are from FreeBSD's `x11-drivers/xlibre-xf86-input-mouse` port |
 | `xf86-input-synaptics` | X11Libre, `X11Libre/xf86-input-synaptics` (tag `xlibre-xf86-input-synaptics-25.0.0`) | 25.0.0 | MIT (`COPYING`). Patches in `patches/xf86-input-synaptics/` are from FreeBSD's `x11-drivers/xlibre-xf86-input-synaptics` port |
 | `xf86-input-vmmouse` | X11Libre, `X11Libre/xf86-input-vmmouse` (tag `xlibre-xf86-input-vmmouse-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`). amd64 only |
-| `xf86-video-scfb` | X11Libre, `X11Libre/xf86-video-scfb` (tag `xlibre-xf86-video-scfb-25.0.0`) | 25.0.0 | BSD-2-Clause (`COPYING`) |
+| `xf86-video-scfb` | X11Libre, `X11Libre/xf86-video-scfb` (tag `xlibre-xf86-video-scfb-25.0.0`) | 25.0.0 | BSD-2-Clause (`COPYING`). Patch `0001` in `patches/xf86-video-scfb/` is NextBSD's own, under the same licence |
 | `xf86-video-vesa` | X11Libre, `X11Libre/xf86-video-vesa` (tag `xlibre-xf86-video-vesa-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`). amd64 only |
 
 Build input that is staged into the sysroot only and is not part of the

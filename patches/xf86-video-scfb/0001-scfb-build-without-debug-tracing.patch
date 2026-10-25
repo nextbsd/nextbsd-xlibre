@@ -1,0 +1,22 @@
+Description: scfb: build without the debug tracing.
+ scfb_driver.c defines DEBUG to 1 unconditionally, so every server start
+ prints the driver's trace on stderr and into Xorg.N.log ("scfb trace: probe
+ start", "scfb: PreInit 1", "scfb: ScfbSave 1 done", the mmap addresses, ...).
+ It is developer tracing, not log information; the driver's xf86DrvMsg()
+ messages are unaffected. DEBUG is set to 0 (the #if DEBUG blocks and the
+ TRACE macros compile to nothing).
+Origin: NextBSD
+ (nextbsd/nextbsd-xlibre#22, item 5)
+Forwarded: not yet; X11Libre's and X.Org's scfb both still define DEBUG 1
+---
+--- a/src/scfb_driver.c
++++ b/src/scfb_driver.c
+@@ -69,7 +69,7 @@
+ #endif
+ 
+ #undef	DEBUG
+-#define	DEBUG	1
++#define	DEBUG	0
+ 
+ #if DEBUG
+ # define TRACE_ENTER(str)	ErrorF("scfb: " str " %d\n",pScrn->scrnIndex)

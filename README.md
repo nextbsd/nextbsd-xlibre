@@ -194,7 +194,7 @@ and the input stack from `nextbsd-displayserver-support`'s.
 | `xf86-input-mouse` | 25.0.0 | autotools | `input/mouse_drv.so`, `xf86-mouse-properties.h`, `mousedrv.4x`. 4 FreeBSD port patches (about 1,270 lines) | nextbsd/nextbsd-xlibre#4 |
 | `xf86-input-synaptics` | 25.0.0 | autotools | `input/synaptics_drv.so` (psmcomm, ps2comm, eventcomm), `synclient`, `syndaemon`, `synaptics-properties.h`, man pages; no `70-synaptics.conf`. 3 FreeBSD port patches | nextbsd/nextbsd-xlibre#4 |
 | `xf86-input-vmmouse` | 25.0.0 | autotools | **amd64 only**: `input/vmmouse_drv.so`, `vmmouse_detect`, man pages | nextbsd/nextbsd-xlibre#4 |
-| `xf86-video-scfb` | 25.0.0 | autotools | `drivers/scfb_drv.so`, `scfb.4x` | nextbsd/nextbsd-xlibre#4 |
+| `xf86-video-scfb` | 25.0.0 | autotools | `drivers/scfb_drv.so`, `scfb.4x`. 1 NextBSD patch: built without its debug tracing (nextbsd/nextbsd-xlibre#22) | nextbsd/nextbsd-xlibre#4 |
 | `xf86-video-vesa` | 25.0.0 | autotools | **amd64 only**: `drivers/vesa_drv.so`, `vesa.4x` | nextbsd/nextbsd-xlibre#4 |
 
 Licences are per component; see `NOTICE.md`. The top-level `LICENSE` (BSD-2)
