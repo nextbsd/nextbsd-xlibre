@@ -34,6 +34,8 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `setxkbmap` | X.Org, `xorg/app/setxkbmap` | 1.3.5 | HPND (`COPYING`) |
 | `xinput` | X.Org, `xorg/app/xinput` | 1.6.4 | HPND / MIT-style, per file (`COPYING`) |
 | `xrandr` | X.Org, `xorg/app/xrandr` | 1.5.4 | HPND-sell-variant (`COPYING`) |
+| `twm` | X.Org, `xorg/app/twm` | 1.0.13.1 | MIT/X11-style (`COPYING`) |
+| `xterm` | Thomas E. Dickey, invisible-island.net (`archives/xterm`) | 412 | MIT/X11-style (`COPYING`) |
 | `xf86-input-libinput` | X11Libre, `X11Libre/xf86-input-libinput` (tag `xlibre-xf86-input-libinput-25.0.1`) | 25.0.1 | MIT/X11-style, per file (`COPYING`) |
 | `xf86-input-evdev` | X11Libre, `X11Libre/xf86-input-evdev` (tag `xlibre-xf86-input-evdev-25.0.0`) | 25.0.0 | MIT/X11-style, per file (`COPYING`) |
 | `xf86-input-joystick` | X11Libre, `X11Libre/xf86-input-joystick` (tag `xlibre-xf86-input-joystick-25.0.0`) | 25.0.0 | MIT/X11-style (`COPYING`) |
