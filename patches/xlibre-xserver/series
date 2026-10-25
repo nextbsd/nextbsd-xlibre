@@ -33,4 +33,10 @@
 #   0005  -launchd <name>: take the listening sockets from launchd, so the
 #         org.nextbsd.xlibre LaunchAgent can start the server when the first
 #         X client connects (nextbsd/nextbsd-xlibre#13, the XQuartz model).
+#         A socket's private directory must be the real uid's (getuid),
+#         since Xorg is set-uid root (nextbsd/nextbsd-xlibre#20).
 0005-os-listen-on-launchd-sockets.patch
+#   0006  -Ddri_driver_path: GLX's DRI driver directory set explicitly, not
+#         dri.pc's dridriverdir, which pkgconf prefixes with the build
+#         sysroot (nextbsd/nextbsd-xlibre#20).
+0006-meson-dri_driver_path-option.patch

@@ -10,9 +10,10 @@ Description: os: -launchd <name>, listen on the sockets of a launchd Sockets ent
  lock file, like XQuartz.
  .
  A socket skips X authorization (ListenOnOpenFD's noxauth) only when its
- directory belongs to the server's user and nobody else can enter it, which
- is what SecureSocketWithKey creates; any other launchd socket keeps X
- authorization and the server logs a warning.
+ directory belongs to the user who started the server (its real uid: Xorg is
+ set-uid root, nextbsd/nextbsd-xlibre#20, so the effective uid is root's) and
+ nobody else can enter it, which is what SecureSocketWithKey creates; any
+ other launchd socket keeps X authorization and the server logs a warning.
  .
  liblaunch is dlopen(3)ed only when -launchd is given, so Xorg does not link
  it and a server started any other way (startx, xinit, a login window) runs
@@ -71,13 +72,14 @@ index 5d5fcb0..f1071d6 100644
  
  static char dynamic_display[7]; /* display name */
  Bool PartialNetwork;            /* continue even if unable to bind all addrs */
-@@ -234,6 +239,73 @@ TryCreateSocket(int num, int *partial)
+@@ -234,6 +239,74 @@ TryCreateSocket(int num, int *partial)
                                                    &ListenTransConns) >= 0);
  }
  
 +#ifndef WIN32
 +/* A launchd socket may skip X authorization only when it sits in a directory
-+ * that nobody but this server's user can enter, as SecureSocketWithKey's
++ * that nobody but the user who started the server can enter (the real uid;
++ * a set-uid Xorg runs with root's effective uid), as SecureSocketWithKey's
 + * mkdtemp(3) directory does; XQuartz relies on the same property. */
 +static Bool
 +LaunchdSocketIsPrivate(int fd)
@@ -97,7 +99,7 @@ index 5d5fcb0..f1071d6 100644
 +        return FALSE;
 +    *slash = '\0';
 +    return stat(addr.sun_path, &st) == 0 && S_ISDIR(st.st_mode) &&
-+        st.st_uid == geteuid() && (st.st_mode & (S_IRWXG | S_IRWXO)) == 0;
++        st.st_uid == getuid() && (st.st_mode & (S_IRWXG | S_IRWXO)) == 0;
 +}
 +
 +/* -launchd <name>: take the listening sockets of the job's launchd Sockets
@@ -145,7 +147,7 @@ index 5d5fcb0..f1071d6 100644
  /*****************
   * CreateWellKnownSockets
   *    At initialization, create the sockets to listen on for new clients.
-@@ -248,6 +320,14 @@ CreateWellKnownSockets(void)
+@@ -248,6 +321,14 @@ CreateWellKnownSockets(void)
      /* display is initialized to "0" by main(). It is then set to the display
       * number if specified on the command line. */
  
@@ -160,7 +162,7 @@ index 5d5fcb0..f1071d6 100644
      if (NoListenAll) {
          ListenTransCount = 0;
      }
-@@ -297,6 +377,9 @@ CreateWellKnownSockets(void)
+@@ -297,6 +378,9 @@ CreateWellKnownSockets(void)
          FatalError
              ("Cannot establish any listening sockets - Make sure an X server isn't already running");
  

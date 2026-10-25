@@ -1,0 +1,41 @@
+Description: meson: -Ddri_driver_path, where GLX loads the DRI drivers from.
+ GLX's DRI_DRIVER_PATH (glx/glx_dri/glxdricommon.c) is taken from dri.pc's
+ dridriverdir with pkg-config. In a cross build pkgconf prefixes the sysroot
+ (PKG_CONFIG_SYSROOT_DIR, which meson sets from the cross file's sys_root) to
+ that variable too, so the shipped libglx.so looked for Mesa's drivers under
+ the build host's sysroot, e.g.
+   (EE) AIGLX error: dlopen of /__w/.../sysroot/usr/X11/lib/dri/swrast_dri.so failed
+ This adds a string option that, when set, is used instead; empty (the
+ default) keeps upstream's dri.pc lookup. The XKB and font paths already
+ have such options (xkb_dir, xkb_bin_dir, default_font_path); this is the
+ same for the DRI driver directory.
+Origin: NextBSD
+ (nextbsd/nextbsd-xlibre#20)
+Forwarded: not yet; a candidate for X11Libre (cross builds with a sysroot)
+---
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -35,6 +35,8 @@
+ 
+ option('glx_dri', type: 'combo', choices: ['true', 'false', 'auto'], value: 'auto',
+         description: 'Build the dri-based glx backends. Default: true')
++option('dri_driver_path', type: 'string', value: '',
++        description: 'Where GLX loads the DRI drivers from (default: dri.pc\'s dridriverdir)')
+ 
+ option('glx', type: 'boolean', value: true)
+ option('xdmcp', type: 'boolean', value: true)
+--- a/include/meson.build
++++ b/include/meson.build
+@@ -232,7 +232,11 @@
+ conf_data.set('DRI3', build_dri3 ? '1' : false)
+ if build_glx
+     if build_glx_dri
+-        conf_data.set_quoted('DRI_DRIVER_PATH', dri_dep.get_variable(pkgconfig : 'dridriverdir'))
++        dri_driver_path = get_option('dri_driver_path')
++        if dri_driver_path == ''
++            dri_driver_path = dri_dep.get_variable(pkgconfig : 'dridriverdir')
++        endif
++        conf_data.set_quoted('DRI_DRIVER_PATH', dri_driver_path)
+         conf_data.set('BUILD_GLX_DRI', 1)
+     endif
+ endif

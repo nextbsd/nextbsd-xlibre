@@ -297,9 +297,16 @@ EOF
 
 # autotools_build [configure options...]: upstream configure in --host mode with
 # the arch's CONFIG_SITE, out of tree; make; make install into $COMP_ROOT.
+# Out of tree, configure compiles each source by its absolute path, so
+# __FILE__ (in assert()s, for one) would carry the build host's source and
+# build directories into the binaries; -fmacro-prefix-map maps both away and
+# __FILE__ names the file relative to its package (no_build_paths checks).
+# The CONFIG_SITE keeps a CFLAGS from the environment; a component that
+# passes CFLAGS= itself must add the maps too.
 autotools_build() {
     (
         cd "$COMP_BUILD"
+        CFLAGS="${CFLAGS:--O2 -pipe} -fmacro-prefix-map=$SRC_DIR/= -fmacro-prefix-map=$COMP_BUILD/=" \
         CONFIG_SITE="$XLIBRE_CROSS/autotools/$T.site" \
         "$SRC_DIR/configure" \
             --build="$BUILD_TRIPLE" --host="$CROSS_TRIPLE" \
@@ -388,6 +395,8 @@ base_list() {
 #   - everything must be under /usr/X11, apart from $OUTSIDE_PREFIX, and
 #     nothing may replace a file already in the sysroot (base_list);
 #   - libtool .la files and docs are dropped (man pages are kept);
+#   - nothing is set-uid or set-gid but $X_PREFIX/bin/Xorg (setid_check),
+#     and no file names a build-host path (no_build_paths);
 #   - .pc files from share/pkgconfig and libdata/pkgconfig move to
 #     lib/pkgconfig;
 #   - a .pc file has prefix=/usr/X11 (or, data-only, sets no path outside
@@ -438,6 +447,8 @@ stage() {
         fi
     done
     find "$x" -type d -empty -delete
+    setid_check "$COMP_ROOT" "$name"
+    no_build_paths "$COMP_ROOT" "$name"
     clash=$(cd "$COMP_ROOT" && find . ! -type d | sed 's#^\./##' | LC_ALL=C sort | LC_ALL=C comm -12 - "$BASE_LIST")
     [ -z "$clash" ] || fail "$name would replace files of the NextBSD base, nextbsd-displayserver-support, nextbsd-xlibs or nextbsd-mesa: $clash"
     (cd "$COMP_ROOT" && tar -cf - .) | (cd "$SYSROOT" && tar -xf -)
@@ -447,6 +458,51 @@ stage() {
     fi
     (cd "$COMP_ROOT" && tar -cf - .) | (cd "$DESTDIR" && tar -xf -)
     note "staged $(cd "$COMP_ROOT" && find . ! -type d | wc -l) files"
+}
+
+# The only set-uid or set-gid file this repo ships: the X server, set-uid root
+# (nextbsd-xlibre#20; see build_xlibre_xserver).
+SETUID_FILES="$X_PREFIX/bin/Xorg"
+
+# setid_check <root> <what>: under <root>, every set-uid or set-gid file is
+# one of SETUID_FILES, and that one is set-uid root: mode 4555 or 4755, owned
+# by root:wheel (uid and gid 0), not set-gid.
+setid_check() {
+    local root="$1" what="$2" f m
+    for f in $(cd "$root" && find . -type f \( -perm -4000 -o -perm -2000 \) | sed 's#^\.##'); do
+        case " $SETUID_FILES " in
+            *" $f "*) ;;
+            *) fail "$what: $f is set-uid or set-gid; only $SETUID_FILES may be" ;;
+        esac
+        m=$(stat -c '%a %u %g' "$root$f")
+        case "$m" in
+            "4555 0 0"|"4755 0 0") note "$what: $f is set-uid root (mode uid gid: $m)" ;;
+            *) fail "$what: $f has mode uid gid $m; it must be 4555 or 4755, root:wheel" ;;
+        esac
+    done
+}
+
+# no_build_paths <root> <what>: no file under <root> (programs, modules,
+# libraries, scripts, man pages, configuration, .pc files) contains a
+# build-host path: this checkout ($ROOT, the CI workspace), the sysroot
+# ($SYSROOT) or the build directory ($BUILD). A sysroot path baked in from a
+# .pc variable (pkgconf prefixes them with the sysroot) is looked up at run
+# time on NextBSD and fails. Each offending file is listed with the paths
+# found in it.
+no_build_paths() {
+    local root="$1" what="$2" pats=() p hits f
+    for p in "$ROOT" "$SYSROOT" "$BUILD" "${GITHUB_WORKSPACE:-}"; do
+        [ -n "$p" ] && pats+=(-e "$p")
+    done
+    hits=$(cd "$root" && grep -r -l -a -F "${pats[@]}" . || true)
+    if [ -n "$hits" ]; then
+        for f in $hits; do
+            echo "    $f:" >&2
+            grep -a -o "$ROOT[^[:space:][:cntrl:]\"]*" "$root/$f" | sort -u | head -5 | sed 's/^/        /' >&2 || true
+        done
+        fail "$what: $(echo "$hits" | wc -l) file(s) contain a build-host path ($ROOT, $SYSROOT)"
+    fi
+    note "$what: no build-host path in any of its $(cd "$root" && find . -type f | wc -l) files ($ROOT, $SYSROOT, $BUILD)"
 }
 
 # pkgconf_sysroot <pkgconf args...>: pkgconf as the builds see it: only the
@@ -638,11 +694,21 @@ build_libpciaccess() {
 # no systemd-logind (it needs D-Bus), no seatd/libseat, no systemd notify, no
 # D-Bus at all.
 #
-# Privilege: no suid wrapper (Xorg.wrap). X is started as root by launchd /
-# loginwindow, as it is today (E23 audit 3), so Xorg is installed as a plain
-# 0755 program in /usr/X11/bin; the build checks it is not set-uid. A user
-# running startx needs root, as with any X without a wrapper; a seat manager
-# would be later work.
+# Privilege (nextbsd-xlibre#20): Xorg is installed set-uid root, mode 4555,
+# as upstream's autotools build did and as the server expects without a
+# wrapper: NextBSD has no seat manager, and the server needs root to open
+# the console/VT, /dev/dri and /dev/input (xf86OpenConsole refuses to run
+# otherwise). There is no suid wrapper (Xorg.wrap) and so no console-only
+# restriction: any user may start X, on the console or over SSH. With
+# privileges elevated the server itself refuses the options that would let a
+# user read or write files as root (-config, -modulepath, -logfile with
+# arbitrary paths). setid_check allows this one set-uid file and no other. A
+# rootless display server is later E25 work.
+#
+# DRI driver directory (nextbsd-xlibre#20): GLX dlopen()s Mesa's DRI drivers
+# from DRI_DRIVER_PATH, which upstream takes from dri.pc's dridriverdir; in
+# this cross build pkgconf returns it with the sysroot in front, so it is
+# given explicitly as /usr/X11/lib/dri (patch 0006 adds -Ddri_driver_path).
 #
 # Paths: modules under /usr/X11/lib/xorg/modules (25.1.9 installs them in its
 # xlibre-25 ABI directory there, which the loader searches first); XKB data
@@ -679,7 +745,7 @@ build_xlibre_xserver() {
         -Dlegacy_nvidia_padding="$nvidia" \
         -Dlog_dir=/var/log -Ddefault_font_path=built-ins \
         -Dxkb_dir="$XKB_DIR" -Dxkb_bin_dir="$X_PREFIX/bin" \
-        -Dxkb_output_dir="$XKM_DIR"
+        -Dxkb_output_dir="$XKM_DIR" -Ddri_driver_path="$X_PREFIX/lib/dri"
     # 25.1.9 installs upstream's NVIDIA OutputClass snippets (from
     # config/meson.build): 10-nvidia.conf and 10-nvidia-modules.conf in
     # share/X11/xorg.conf.d (written for Linux 6.12+'s nvidia-drm, with a
@@ -696,11 +762,18 @@ build_xlibre_xserver() {
     install -m 0644 "$ROOT/launchd/org.nextbsd.xlibre.plist" "$COMP_ROOT$LAUNCH_AGENTS_DIR/"
     # Compiled keymaps (XKM_OUTPUT_DIR): an empty directory, root's.
     install -d -m 0755 "$COMP_ROOT$XKM_DIR"
+    # Set-uid root (see Privilege above). meson installs Xorg 0755 when
+    # there is no suid wrapper; the build runs as root in the container, so
+    # the owner is root and tar keeps owner and mode into the artifact.
+    chown 0:0 "$COMP_ROOT$X_PREFIX/bin/Xorg"
+    chmod 4555 "$COMP_ROOT$X_PREFIX/bin/Xorg"
     stage xlibre-xserver
     local x="$DESTDIR$X_PREFIX" mods="$DESTDIR$X_PREFIX/lib/xorg/modules/xlibre-25" xorg m s
     xorg="$x/bin/Xorg"
     test -x "$xorg" || fail "Xorg not staged"
-    [ ! -u "$xorg" ] || fail "Xorg is set-uid"
+    [ -u "$xorg" ] && [ "$(stat -c '%a %u %g' "$xorg")" = "4555 0 0" ] \
+        || fail "Xorg is not set-uid root 4555 root:wheel ($(stat -c '%a %u %g' "$xorg"))"
+    note "Xorg: set-uid root, mode 4555, root:wheel"
     [ ! -e "$x/libexec/Xorg.wrap" ] && [ ! -e "$x/libexec/Xorg" ] || fail "the suid wrapper was built"
     [ "$(readlink "$x/bin/X")" = Xorg ] || fail "$X_PREFIX/bin/X does not link to Xorg"
     test -f "$x/share/X11/xorg.conf.d/10-quirks.conf" || fail "10-quirks.conf not staged"
@@ -744,6 +817,14 @@ build_xlibre_xserver() {
         grep -q -a -F "$s" "$xorg" || fail "Xorg does not name $s"
     done
     xkb_path_check "$xorg" Xorg
+    # GLX's DRI driver directory: the one compiled into libglx.so (where
+    # glxdricommon.c is built) is /usr/X11/lib/dri, and no module or program
+    # names another .../lib/dri.
+    grep -q -a -F "$X_PREFIX/lib/dri" "$mods/extensions/libglx.so" \
+        || fail "libglx.so does not name $X_PREFIX/lib/dri"
+    s=$(grep -a -o -h -E '/[^[:space:][:cntrl:]"]*/lib/dri' "$mods/extensions/libglx.so" | sort -u)
+    [ "$s" = "$X_PREFIX/lib/dri" ] || fail "libglx.so names DRI driver directories other than $X_PREFIX/lib/dri: $s"
+    note "libglx.so: DRI driver directory $s"
     [ -d "$DESTDIR$XKM_DIR" ] || fail "$XKM_DIR not staged"
     note "Xorg: logs /var/log, XKB $XKB_DIR, xkbcomp in $X_PREFIX/bin, compiled keymaps $XKM_DIR, modules $X_PREFIX/lib/xorg/modules"
     if grep -a -F -e /usr/local -e "$ROOT" -e "$SYSROOT" "$xorg" >/dev/null; then
@@ -1108,9 +1189,8 @@ build_xauth() {
 # xmodmap are not part of NextBSD. A user's ~/.xinitrc (or $XINITRC) is their
 # own session.
 #
-# Privilege: no suid wrapper is built (see xlibre-xserver). launchd and
-# loginwindow start X as root, and startx works when run as root; startx as a
-# normal user needs root. Apple-launchd support (XQuartz's privileged_startx and LaunchAgents) is
+# Privilege: Xorg is set-uid root and no suid wrapper is built (see
+# xlibre-xserver), so startx works for any user. Apple-launchd support (XQuartz's privileged_startx and LaunchAgents) is
 # off. The cookie maker is the base's /usr/bin/openssl (configure would
 # otherwise pick up the build host's mcookie). The xinitrc is made executable,
 # as upstream does since xinit commit e914dae9: startx passes it to xinit as
@@ -1251,9 +1331,8 @@ build_twm() {
 # one up on the build host), utempter (not given --with-utempter), imake.
 # --disable-rpath-hack: configure would add an -rpath for /usr/X11/lib;
 # ldconfig finds it at run time, as for the other tools. xterm keeps its
-# assert()s, whose __FILE__ would be the build host's source path (the
-# sources are compiled out of tree by absolute path), so the source
-# directory is mapped away (-fmacro-prefix-map) and they name bare files.
+# assert()s; autotools_build maps the build host's directories out of their
+# __FILE__.
 #
 # Privilege: no set-uid or set-gid (--disable-setuid --disable-setgid).
 # xterm opens its pty with openpty(3) from the base's libutil, and without
@@ -1272,8 +1351,7 @@ build_xterm() {
     autotools_build --with-app-defaults="$appdefaults" \
         --disable-setuid --disable-setgid --without-utempter \
         --disable-luit --without-xpm --without-pixmapdir --disable-desktop \
-        --disable-imake --disable-rpath-hack \
-        CFLAGS="-O2 -pipe -fmacro-prefix-map=$SRC_DIR/="
+        --disable-imake --disable-rpath-hack
     stage xterm
     local x="$DESTDIR$X_PREFIX" s
     for s in HAVE_LIB_XAW OPT_WIDE_CHARS XRENDERFONT; do
@@ -1356,6 +1434,12 @@ base_list
 for c in $COMPONENTS; do
     "build_$(printf '%s' "$c" | tr - _)"
 done
+
+# The whole artifact once more: exactly one set-uid file (Xorg) and no
+# build-host path in any file (stage checks each component as it goes).
+comp "artifact: set-uid files and build-host paths"
+setid_check "$DESTDIR" artifact
+no_build_paths "$DESTDIR" artifact
 
 echo
 echo "==> staged into $DESTDIR:"
