@@ -1,0 +1,6 @@
+# patches/xf86-video-scfb/series: applied in order with patch -p1.
+#
+# FreeBSD's port carries no patches for scfb. NextBSD's own:
+#   0001  DEBUG 0: no "scfb trace:" / "scfb: PreInit 1" developer tracing on
+#         stderr and in the log (nextbsd/nextbsd-xlibre#22).
+0001-scfb-build-without-debug-tracing.patch
