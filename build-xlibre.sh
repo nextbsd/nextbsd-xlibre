@@ -297,9 +297,16 @@ EOF
 
 # autotools_build [configure options...]: upstream configure in --host mode with
 # the arch's CONFIG_SITE, out of tree; make; make install into $COMP_ROOT.
+# Out of tree, configure compiles each source by its absolute path, so
+# __FILE__ (in assert()s, for one) would carry the build host's source and
+# build directories into the binaries; -fmacro-prefix-map maps both away and
+# __FILE__ names the file relative to its package (no_build_paths checks).
+# The CONFIG_SITE keeps a CFLAGS from the environment; a component that
+# passes CFLAGS= itself must add the maps too.
 autotools_build() {
     (
         cd "$COMP_BUILD"
+        CFLAGS="${CFLAGS:--O2 -pipe} -fmacro-prefix-map=$SRC_DIR/= -fmacro-prefix-map=$COMP_BUILD/=" \
         CONFIG_SITE="$XLIBRE_CROSS/autotools/$T.site" \
         "$SRC_DIR/configure" \
             --build="$BUILD_TRIPLE" --host="$CROSS_TRIPLE" \
@@ -1324,9 +1331,8 @@ build_twm() {
 # one up on the build host), utempter (not given --with-utempter), imake.
 # --disable-rpath-hack: configure would add an -rpath for /usr/X11/lib;
 # ldconfig finds it at run time, as for the other tools. xterm keeps its
-# assert()s, whose __FILE__ would be the build host's source path (the
-# sources are compiled out of tree by absolute path), so the source
-# directory is mapped away (-fmacro-prefix-map) and they name bare files.
+# assert()s; autotools_build maps the build host's directories out of their
+# __FILE__.
 #
 # Privilege: no set-uid or set-gid (--disable-setuid --disable-setgid).
 # xterm opens its pty with openpty(3) from the base's libutil, and without
@@ -1345,8 +1351,7 @@ build_xterm() {
     autotools_build --with-app-defaults="$appdefaults" \
         --disable-setuid --disable-setgid --without-utempter \
         --disable-luit --without-xpm --without-pixmapdir --disable-desktop \
-        --disable-imake --disable-rpath-hack \
-        CFLAGS="-O2 -pipe -fmacro-prefix-map=$SRC_DIR/="
+        --disable-imake --disable-rpath-hack
     stage xterm
     local x="$DESTDIR$X_PREFIX" s
     for s in HAVE_LIB_XAW OPT_WIDE_CHARS XRENDERFONT; do
