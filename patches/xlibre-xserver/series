@@ -40,3 +40,7 @@
 #         dri.pc's dridriverdir, which pkgconf prefixes with the build
 #         sysroot (nextbsd/nextbsd-xlibre#20).
 0006-meson-dri_driver_path-option.patch
+#   0007  xf86CheckSlot: an scfb device, like an autoconfigured fbdev, must be
+#         the only device, so autoconfiguration's scfb fallback does not add
+#         a second screen next to modesetting (nextbsd/nextbsd-xlibre#22).
+0007-xf86Bus-scfb-must-be-the-only-device.patch

@@ -1,0 +1,51 @@
+Description: xf86CheckSlot: scfb, like an autoconfigured fbdev, must be the only device.
+ With no xorg.conf, autoconfiguration on FreeBSD lists modesetting and then
+ scfb as the platform's fallback framebuffer driver (xf86AutoConfig.c,
+ listPossibleVideoDrivers). modesetting claims the KMS device on the
+ platform bus; scfb then claims the console framebuffer with
+ xf86ClaimFbSlot(), and xf86CheckSlot() let it: it treats an autoconfigured
+ Linux fbdev as incompatible with any other device, but for scfb it only
+ compares DRI paths, which scfb has none of. The result was a second X
+ screen (:0.1) on the same display:
+   (II) Matched scfb as autoconfigured driver 1
+   (II) scfb(1): using default device
+ scfb always drives the console's framebuffer (vt(4)'s efifb/vbefb, or a
+ boot framebuffer), which is the display a KMS driver already drives, so it
+ gets fbdev's rule both ways: a candidate scfb device is refused when any
+ other device is claimed, and nothing is claimed after an scfb device.
+ Without KMS nothing else is claimed and scfb drives the display as before.
+ X.Org's server had the same effect through platformSlotClaimed and
+ pciSlotClaimed in xf86ClaimFbSlot(), which XLibre replaced with
+ xf86CheckSlot().
+Origin: NextBSD
+ (nextbsd/nextbsd-xlibre#22, item 4)
+Forwarded: not yet; a candidate for X11Libre (xf86CheckSlot on FreeBSD)
+---
+--- a/hw/xfree86/common/xf86Bus.c
++++ b/hw/xfree86/common/xf86Bus.c
+@@ -720,6 +720,15 @@
+                 fbPath = "";
+             }
+         }
++        else
++        if (!strcasecmp(fb_ptr->driver, "scfb")) {
++   /*
++    * scfb (FreeBSD, DragonFly) always drives the console's framebuffer,
++    * which is the display a KMS driver already drives: like an
++    * autoconfigured fbdev device, it must be the only device.
++    */
++            fbPath = "";
++        }
+     }
+ 
+    /*
+@@ -781,7 +790,8 @@
+ #endif
+ 
+         if (pent->bus.type == BUS_NONE) {
+-            if (!strcasecmp(pent->driver->driverName, "fbdev")) {
++            if (!strcasecmp(pent->driver->driverName, "fbdev") ||
++                !strcasecmp(pent->driver->driverName, "scfb")) {
+                 if ((type != BUS_NONE) || (fbPath == NULL)) {
+                     /* fbdev without busID is incompatible with other types */
+                     LogMessageVerb(X_INFO, 1,

@@ -257,12 +257,13 @@ FreeBSD's port builds (maintainer decision, 2026-10-25).
 | `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.1.9 builds it only for Linux |
 | `0004` meson | takes epoll-shim's include path from its dependency (25.1.9 adds the build host's `<epoll-shim prefix>/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
 
-and two of NextBSD's own:
+and three of NextBSD's own:
 
 | Patch | What |
 |---|---|
 | `0005` os | `-launchd <name>`: listen only on the sockets of the launchd job's `Sockets` entry `<name>`, for [on-demand start](#on-demand-start). The socket's directory must belong to the server's real uid (the user who started it; `Xorg` is set-uid root) |
 | `0006` meson | `-Ddri_driver_path`: GLX's DRI driver directory set explicitly (`/usr/X11/lib/dri`) instead of `dri.pc`'s `dridriverdir`, which pkgconf prefixes with the build sysroot (nextbsd/nextbsd-xlibre#20) |
+| `0007` xfree86 | `xf86CheckSlot()`: an scfb device, like an autoconfigured fbdev, must be the only device. With no xorg.conf, autoconfiguration falls back to scfb after modesetting, and scfb claimed the console framebuffer as a second screen (`:0.1`) on the display modesetting already drives (nextbsd/nextbsd-xlibre#22). Without KMS, scfb is still used |
 
 Not carried: the seatd patch (it changes only `seatd-libseat.c`, not built with
 seatd off), the two suid-wrapper patches
