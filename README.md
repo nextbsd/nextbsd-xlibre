@@ -231,7 +231,8 @@ FreeBSD's port builds (maintainer decision, 2026-10-25).
 | Graphics (D9) | glamor, GBM, the modesetting driver, GLX with DRI, DRI2 and DRI3 on, against `nextbsd-mesa`'s libGL, libEGL and libgbm, `nextbsd-displayserver-support`'s libdrm and pixman (in `/usr/lib`) and this repo's libepoxy. On amd64 the legacy NVIDIA `ScreenRec` padding is on (as FreeBSD builds it), so NVIDIA's `nvidia_drv.so` loads |
 | Devices | the udev config backend and KMS device discovery (the platform bus) through `nextbsd-displayserver-support`'s libudev (libudev-devd; `-Dudev=true -Dudev_kms=true`, as FreeBSD's port); `libinput` is the fallback input driver. PCI through `libpciaccess` |
 | Not built | HAL, systemd-logind, systemd notify, seatd/libseat, D-Bus, SELinux, DTrace, libunwind, docs, tests, the `inputtest` driver |
-| Privilege | **no suid wrapper** (`Xorg.wrap`). X is started as root by launchd/loginwindow, as today, so `Xorg` is a plain 0755 program in `/usr/X11/bin` (the build checks it is not set-uid). `startx` as a normal user needs root; a seat manager is later work |
+| Privilege | `/usr/X11/bin/Xorg` is **set-uid root** (mode 4555), as upstream installs it without a wrapper (nextbsd/nextbsd-xlibre#20): NextBSD has no seat manager, and the server needs root for the console/VT, `/dev/dri` and `/dev/input`. **No suid wrapper** (`Xorg.wrap`) and no console-only restriction: any user may start X, locally or over SSH. The build allows exactly this one set-uid file and refuses any other set-uid or set-gid file. A rootless display server is later E25 work |
+| DRI drivers | GLX loads Mesa's DRI drivers from `/usr/X11/lib/dri`, given explicitly (`-Ddri_driver_path`, patch `0006`): upstream takes `dri.pc`'s `dridriverdir`, which pkgconf returns with the build sysroot in front (nextbsd/nextbsd-xlibre#20). The build checks `libglx.so` names only that directory, and that no shipped file names the build sysroot or checkout |
 | Modules | `/usr/X11/lib/xorg/modules/xlibre-25` (the loader searches it, then `xlibre-25.0` and `/usr/X11/lib/xorg/modules`). The drivers (nextbsd/nextbsd-xlibre#4) install there, `xorg-server.pc`'s `moduledir` (see [drivers](#drivers)) |
 | XKB | rules from `/usr/share/X11/xkb`, `xkbcomp` from `/usr/X11/bin`, compiled keymaps in `/var/db/xkb` (see [XKB paths](#xkb-paths)) |
 | Fonts | default font path `built-ins` only |
@@ -249,11 +250,12 @@ FreeBSD's port builds (maintainer decision, 2026-10-25).
 | `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.1.9 builds it only for Linux |
 | `0004` meson | takes epoll-shim's include path from its dependency (25.1.9 adds the build host's `<epoll-shim prefix>/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
 
-and one of NextBSD's own:
+and two of NextBSD's own:
 
 | Patch | What |
 |---|---|
-| `0005` os | `-launchd <name>`: listen only on the sockets of the launchd job's `Sockets` entry `<name>`, for [on-demand start](#on-demand-start) |
+| `0005` os | `-launchd <name>`: listen only on the sockets of the launchd job's `Sockets` entry `<name>`, for [on-demand start](#on-demand-start). The socket's directory must belong to the server's real uid (the user who started it; `Xorg` is set-uid root) |
+| `0006` meson | `-Ddri_driver_path`: GLX's DRI driver directory set explicitly (`/usr/X11/lib/dri`) instead of `dri.pc`'s `dridriverdir`, which pkgconf prefixes with the build sysroot (nextbsd/nextbsd-xlibre#20) |
 
 Not carried: the seatd patch (it changes only `seatd-libseat.c`, not built with
 seatd off), the two suid-wrapper patches
@@ -329,10 +331,8 @@ export DISPLAY="$(launchctl getenv DISPLAY)"
 xset q        # the first client starts Xorg
 ```
 
-**Limitation:** the server runs as the user. There is no set-uid wrapper and
-no seat manager (see Privilege above), so on a console `Xorg` can drive the
-display only where that user may open the DRM, input and VT devices. The
-socket handling is not tied to `Xorg`: a rootless XLibre server inside the
+The server runs set-uid root (see Privilege above), so it can open the DRM,
+input and VT devices whichever user loads the agent. The socket handling is not tied to `Xorg`: a rootless XLibre server inside the
 WindowServer (nextbsd/nextbsd-xlibre#14), which runs as the user anyway, is
 meant to start the same way.
 
@@ -353,7 +353,7 @@ each library it links resolves there and that no build-host RPATH is set.
 | xauth | `/usr/X11/bin/xauth`, the path startx runs. Upstream's startx still ran a bare `xauth` from `$PATH` in two places; patch `0001` makes it use the configured path throughout |
 | xinitrc | the system xinitrc is upstream's sample, `/usr/X11/etc/X11/xinit/xinitrc`, under the server's own configuration directory (`/usr/X11/etc/X11`); startx also looks there for `xserverrc` and `xinitrc.d/*.sh`. It starts twm and three xterms and ends with `exec xterm` (twm and xterm are built here, see [session clients](#the-session-clients)); its `xclock &` line fails in the background, since xclock is not shipped. A session of one's own belongs in `~/.xinitrc` (or `$XINITRC`). Installed executable, as upstream does since 1.4.4: startx hands it to xinit as the client program. xinit itself reads only `~/.xinitrc` |
 | Cookies | startx makes the MIT-MAGIC-COOKIE with the base's `/usr/bin/openssl rand -hex 16` |
-| Privilege | no suid wrapper (see [server](#the-x-server)). X is started as root by launchd/loginwindow; `startx` run as root works, and `startx` as a normal user needs root |
+| Privilege | `Xorg` is set-uid root, with no suid wrapper (see [server](#the-x-server)), so `startx` works for any user |
 | Not built | xinit's Apple launchd support (XQuartz's `privileged_startx` and LaunchAgents); xset's fontcache and XFree86-Misc extensions (gone from servers; no library in `nextbsd-xlibs`); xrandr's `xkeystone` |
 | `/usr/local` | none: the build checks startx, xinitrc, every tool and its man page name neither `/usr/local` nor a build path (patch `0001` also drops `/usr/local/bin` from a comment in startx's Darwin-only branch) |
 
