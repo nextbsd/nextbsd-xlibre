@@ -1250,7 +1250,10 @@ build_twm() {
 # (--disable-luit: no luit is shipped, and configure would otherwise look
 # one up on the build host), utempter (not given --with-utempter), imake.
 # --disable-rpath-hack: configure would add an -rpath for /usr/X11/lib;
-# ldconfig finds it at run time, as for the other tools.
+# ldconfig finds it at run time, as for the other tools. xterm keeps its
+# assert()s, whose __FILE__ would be the build host's source path (the
+# sources are compiled out of tree by absolute path), so the source
+# directory is mapped away (-fmacro-prefix-map) and they name bare files.
 #
 # Privilege: no set-uid or set-gid (--disable-setuid --disable-setgid).
 # xterm opens its pty with openpty(3) from the base's libutil, and without
@@ -1269,7 +1272,8 @@ build_xterm() {
     autotools_build --with-app-defaults="$appdefaults" \
         --disable-setuid --disable-setgid --without-utempter \
         --disable-luit --without-xpm --without-pixmapdir --disable-desktop \
-        --disable-imake --disable-rpath-hack
+        --disable-imake --disable-rpath-hack \
+        CFLAGS="-O2 -pipe -fmacro-prefix-map=$SRC_DIR/="
     stage xterm
     local x="$DESTDIR$X_PREFIX" s
     for s in HAVE_LIB_XAW OPT_WIDE_CHARS XRENDERFONT; do
