@@ -4,17 +4,17 @@ Description: bsd_init: put the console keyboard in K_RAW while X owns the VT.
  console's tty (and its special keys). This saves the tty attributes and
  keyboard mode, sets K_RAW and a raw termios, and restores both in
  xf86CloseConsole().
- Rebased for 25.2.2: the declaration of nTty moves next to the "int result"
- that upstream added at the top of the block; otherwise unchanged.
+ Unchanged from FreeBSD's port (which builds 25.1.9); it applies to 25.1.9
+ as it is.
 Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_bsd_bsd__init.c
  (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_bsd_bsd__init.c)
 Forwarded: not yet; a candidate for X11Libre (BSD console handling)
 ---
 diff --git a/hw/xfree86/os-support/bsd/bsd_init.c b/hw/xfree86/os-support/bsd/bsd_init.c
-index eebd585..1b5487d 100644
+index 914383f..cf912cc 100644
 --- a/hw/xfree86/os-support/bsd/bsd_init.c
 +++ b/hw/xfree86/os-support/bsd/bsd_init.c
-@@ -48,6 +48,8 @@ static Bool KeepTty = FALSE;
+@@ -52,6 +52,8 @@ static Bool KeepTty = FALSE;
  #if defined (SYSCONS_SUPPORT) || defined (PCVT_SUPPORT)
  static int VTnum = -1;
  static int initialVT = -1;
@@ -23,15 +23,15 @@ index eebd585..1b5487d 100644
  #endif
  
  #ifdef SYSCONS_SUPPORT
-@@ -216,6 +218,7 @@ xf86OpenConsole(void)
- acquire_vt:
+@@ -237,6 +239,7 @@ xf86OpenConsole(void)
+  acquire_vt:
+ #endif
              if (!xf86Info.ShareVTs) {
-                 int result;
 +                struct termios nTty;
                  /*
                   * now get the VT
                   */
-@@ -253,6 +256,26 @@ acquire_vt:
+@@ -271,6 +274,26 @@ xf86OpenConsole(void)
                  if (ioctl(xf86Info.consoleFd, KDSETMODE, KD_GRAPHICS) < 0) {
                      FatalError("xf86OpenConsole: KDSETMODE KD_GRAPHICS failed");
                  }
@@ -58,7 +58,7 @@ index eebd585..1b5487d 100644
              }
              else {              /* xf86Info.ShareVTs */
                  close(xf86Info.consoleFd);
-@@ -535,6 +558,8 @@ xf86CloseConsole(void)
+@@ -565,6 +588,8 @@ xf86CloseConsole(void)
      case SYSCONS:
      case PCVT:
          ioctl(xf86Info.consoleFd, KDSETMODE, KD_TEXT);  /* Back to text mode */

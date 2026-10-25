@@ -19,7 +19,7 @@ nextbsd-xlibre                  the XLibre server, drivers, xkbcomp, tools   <- 
 ```
 
 It builds the server's support libraries and the XKB keymap compiler
-(nextbsd/nextbsd-xlibre#1), the XLibre server 25.2.2 with modesetting and
+(nextbsd/nextbsd-xlibre#1), the XLibre server 25.1.9 with modesetting and
 glamor (nextbsd/nextbsd-xlibre#3), its input and video drivers
 (nextbsd/nextbsd-xlibre#4), and the X.Org tools xauth, xinit (with startx),
 xset, setxkbmap, xinput and xrandr (nextbsd/nextbsd-xlibre#5). No fonts are
@@ -169,7 +169,7 @@ and the input stack from `nextbsd-displayserver-support`'s.
 | `libxcvt` | 0.1.3 | meson | `libxcvt.so.0`, `/usr/X11/bin/cvt` | nextbsd/nextbsd-xlibre#1 |
 | `xkbcomp` | 1.5.0 | meson | `/usr/X11/bin/xkbcomp`, `xkbcomp.pc` (XKB root `/usr/share/X11/xkb`) | nextbsd/nextbsd-xlibre#1 |
 | `libpciaccess` | 0.19 | meson | `libpciaccess.so.0`, `pciaccess.h`; `/usr/X11/share/hwdata/pci.ids` links to the base's `/usr/share/misc/pci_vendors` | nextbsd/nextbsd-xlibre#3 |
-| `xlibre-xserver` | 25.2.2 | meson | `/usr/X11/bin/Xorg` (and `X`), its modules in `/usr/X11/lib/xorg/modules/xlibre-25` (modesetting, glamoregl, glx, exa, fbdevhw, int10, shadow, shadowfb, vgahw, wfb), the Xorg SDK (`include/xorg`, `xorg-server.pc`) for the drivers, `protocol.txt`, man pages. 4 FreeBSD port patches (see [server](#the-x-server)) | nextbsd/nextbsd-xlibre#3 |
+| `xlibre-xserver` | 25.1.9 | meson | `/usr/X11/bin/Xorg` (and `X`), its modules in `/usr/X11/lib/xorg/modules/xlibre-25` (modesetting, glamoregl, glx, exa, fbdevhw, int10, shadow, shadowfb, vgahw, wfb), the Xorg SDK (`include/xorg`, `xorg-server.pc`) for the drivers, `protocol.txt`, man pages. 4 FreeBSD port patches (see [server](#the-x-server)) | nextbsd/nextbsd-xlibre#3 |
 | `xauth` | 1.1.5 | autotools | `/usr/X11/bin/xauth`, `xauth.1` | nextbsd/nextbsd-xlibre#5 |
 | `xinit` | 1.4.4 | autotools | `/usr/X11/bin/xinit` and `startx`, `/usr/X11/etc/X11/xinit/xinitrc`, `xinit.1`, `startx.1`. 2 NextBSD patches (see [tools](#the-tools)) | nextbsd/nextbsd-xlibre#5 |
 | `xset` | 1.2.6 | meson | `/usr/X11/bin/xset`, `xset.1` | nextbsd/nextbsd-xlibre#5 |
@@ -216,8 +216,10 @@ set in the image by `nextbsd-overlays` (`/etc/sysctl.conf`), not here.
 
 ### The X server
 
-XLibre's `xlibre-xserver-25.2.2` (E23 D5; 25.1.9, what FreeBSD runs today, is
-the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
+XLibre's `xlibre-xserver-25.1.9`, from its GitHub tag archive (XLibre
+publishes no tarballs). It is the release upstream marks "Latest"; every 25.2.x
+is a pre-release (testing), so the pin is E23 D5's fallback, the version
+FreeBSD's port builds (maintainer decision, 2026-10-25).
 
 | What | Choice |
 |---|---|
@@ -240,8 +242,8 @@ the fallback), from its GitHub tag archive (XLibre publishes no tarballs).
 |---|---|
 | `0001` config/udev | a kbdmux keyboard gets the `device` option only if it can be opened; keyboards and pointers get `kbd`/`mouse` when the kernel has no evdev |
 | `0002` bsd_init | the console keyboard goes to `K_RAW` (and its termios is saved and restored) while X owns the VT, so keys don't reach the console tty |
-| `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.2.2 builds it only for Linux |
-| `0004` meson | takes epoll-shim's include path from its dependency (25.2.2 adds the build host's `<epoll-shim prefix>/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
+| `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.1.9 builds it only for Linux |
+| `0004` meson | takes epoll-shim's include path from its dependency (25.1.9 adds the build host's `<epoll-shim prefix>/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
 
 and one of NextBSD's own:
 
@@ -249,7 +251,8 @@ and one of NextBSD's own:
 |---|---|
 | `0005` os | `-launchd <name>`: listen only on the sockets of the launchd job's `Sockets` entry `<name>`, for [on-demand start](#on-demand-start) |
 
-Not carried: the seatd patch (already in 25.2.2), the two suid-wrapper patches
+Not carried: the seatd patch (it changes only `seatd-libseat.c`, not built with
+seatd off), the two suid-wrapper patches
 (no wrapper is built) and `os/utils.c`'s `CLOCK_MONOTONIC_COARSE` → `_FAST`
 (NextBSD's headers already define the one as the other). `series` records why.
 

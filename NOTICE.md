@@ -27,7 +27,7 @@ The top-level **`LICENSE` (BSD 2-Clause)** covers only what this repo authors:
 | `libxcvt` | X.Org, `xorg/lib/libxcvt` | 0.1.3 | MIT/X11 (`COPYING`) |
 | `xkbcomp` | X.Org, `xorg/app/xkbcomp` | 1.5.0 | HPND / MIT-style (`COPYING`) |
 | `libpciaccess` | X.Org, `xorg/lib/libpciaccess` | 0.19 | MIT/X11-style, per file (`COPYING`) |
-| `xlibre-xserver` | X11Libre, `X11Libre/xserver` (tag `xlibre-xserver-25.2.2`) | 25.2.2 | MIT/X11-style, per file (`COPYING`). Patches `0001`–`0004` in `patches/xlibre-xserver/` are from FreeBSD's `x11-servers/xlibre-server` port and `0005` is NextBSD's own, all under the licence of the files they change |
+| `xlibre-xserver` | X11Libre, `X11Libre/xserver` (tag `xlibre-xserver-25.1.9`) | 25.1.9 | MIT/X11-style, per file (`COPYING`). Patches `0001`–`0004` in `patches/xlibre-xserver/` are from FreeBSD's `x11-servers/xlibre-server` port and `0005` is NextBSD's own, all under the licence of the files they change |
 | `xauth` | X.Org, `xorg/app/xauth` | 1.1.5 | MIT-open-group (`COPYING`) |
 | `xinit` | X.Org, `xorg/app/xinit` | 1.4.4 | MIT-open-group and MIT/X11-style, per file (`COPYING`). NextBSD's patches in `patches/xinit/` are under the licence of the files they change |
 | `xset` | X.Org, `xorg/app/xset` | 1.2.6 | MIT-open-group (`COPYING`) |
