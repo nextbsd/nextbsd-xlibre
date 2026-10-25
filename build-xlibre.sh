@@ -137,7 +137,7 @@ lock_field() {
 # cannot exec target binaries on the runner).
 needed_check() {
     local obj="$1" want="$2"
-    "$CROSS_BINDIR/llvm-readelf" -d "$obj" 2>/dev/null | grep -q "NEEDED.*\[$want" \
+    "$CROSS_BINDIR/llvm-readelf" -d "$obj" 2>/dev/null | grep "NEEDED.*\[$want" >/dev/null \
         || fail "$obj missing DT_NEEDED $want"
     note "DT_NEEDED ok: $(basename "$obj") -> $want"
 }
@@ -172,7 +172,7 @@ needed_resolve() {
 # Assert a staged shared library carries the upstream soname.
 soname_check() {
     local lib="$1" want="$2"
-    "$CROSS_BINDIR/llvm-readelf" -d "$lib" 2>/dev/null | grep -q "SONAME.*\[$want\]" \
+    "$CROSS_BINDIR/llvm-readelf" -d "$lib" 2>/dev/null | grep "SONAME.*\[$want\]" >/dev/null \
         || fail "$lib does not have SONAME $want"
     note "SONAME ok: $want"
 }
@@ -1426,10 +1426,9 @@ build_mkfontscale() {
 # The package's own mkfontdir run is skipped (MKFONTDIR=true): it would index
 # only that package's fonts; build_font_alias writes fonts.dir once for the
 # whole directory. No fc-cache: these are core X fonts, not fontconfig's.
-# make runs serially: font-misc-misc's suffix rules (ucs2any, bdftruncate,
-# bdftopcf) are not safe in parallel, and one CI run produced a misc
-# directory whose fonts.dir lacked the ISO8859-1 13-120 fixed font
-# (nextbsd-xlibre#22); the fonts take seconds either way.
+# make runs serially (the fonts take seconds either way) and with pipefail,
+# so a failing bdftopcf in `bdftopcf -t x.bdf | gzip > x.pcf.gz` fails the
+# build instead of leaving a broken x.pcf.gz behind gzip's exit status.
 font_build() {
     (
         cd "$COMP_BUILD"
@@ -1513,6 +1512,13 @@ UTF8_FONTSET_CHARSETS="iso8859-1 iso8859-2 iso8859-3 iso8859-4 iso8859-5 koi8-r
 # fonts_dir_check <dir>: <dir>/fonts.dir is well formed, every file it names
 # is in <dir>, and every font file in <dir> is in it (mkfontdir skips a file
 # it cannot identify, e.g. a damaged PCF).
+#
+# Under `set -o pipefail` a pipeline must not end in `grep -q`: grep exits at
+# the first match, the writer before it can then die of SIGPIPE, and the
+# pipeline fails although the line is there. That made the fonts.dir checks
+# fail at random (#27's "fonts.dir has no ...-iso8859-1", #28's "staged but
+# not in fonts.dir"); here and in needed_check/soname_check grep reads all
+# its input (>/dev/null) instead.
 fonts_dir_check() {
     local d="$1" n f
     n=$(head -1 "$d/fonts.dir")
@@ -1521,10 +1527,8 @@ fonts_dir_check() {
         test -f "$d/$f" || fail "fonts.dir names $f, which is not staged"
     done
     for f in $(cd "$d" && ls | grep '\.pcf\.gz$'); do
-        if ! sed 1d "$d/fonts.dir" | awk '{print $1}' | grep -q -x -F "$f"; then
+        if ! sed 1d "$d/fonts.dir" | awk '{print $1}' | grep -x -F -e "$f" >/dev/null; then
             ls -l "$d/$f" >&2
-            gzip -dc "$d/$f" | od -A d -t x1 | head -3 >&2 || true
-            gzip -dc "$d/$f" | wc -c >&2 || true
             fail "$f is staged but not in $d/fonts.dir"
         fi
     done
@@ -1535,7 +1539,7 @@ fonts_dir_has() {
     local d="$1" want
     shift
     for want in "$@"; do
-        sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -q -x -F -e "$want" \
+        sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -x -F -e "$want" >/dev/null \
             || fail "$d/fonts.dir has no $want"
         note "fonts.dir: $want"
     done
@@ -1565,7 +1569,7 @@ build_font_alias() {
     n=$(head -1 "$d/fonts.dir")
     for want in '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso10646-1' \
                 '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1' 'cursor'; do
-        if ! sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -q -x -F -e "$want"; then
+        if ! sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -x -F -e "$want" >/dev/null; then
             grep -e '-13-120-75-75-c-60-' "$d/fonts.dir" >&2 || true
             fail "fonts.dir has no $want"
         fi
@@ -1606,19 +1610,6 @@ build_font_adobe_75dpi() {
     fetch font-adobe-75dpi
     font_build
     host_env mkfontdir "$COMP_ROOT$FONT_75DPI_DIR"
-    # TEMPORARY diagnostics (nextbsd-xlibre#28): repeat mkfontdir and compare.
-    local i
-    for i in 1 2 3; do
-        host_env mkfontscale -b -s -l -o "$BUILD/fonts.dir.$i" "$COMP_ROOT$FONT_75DPI_DIR"
-        echo "diag run $i: $(head -1 "$BUILD/fonts.dir.$i") entries, $(ls "$COMP_ROOT$FONT_75DPI_DIR" | grep -c '\.pcf\.gz$') files, courB08: $(grep -c '^courB08' "$BUILD/fonts.dir.$i")"
-    done
-    diff "$BUILD/fonts.dir.1" "$BUILD/fonts.dir.2" | head -5 || true
-    sed 1d "$BUILD/fonts.dir.1" | awk '{print $1}' | sort > "$BUILD/fd.files"
-    (cd "$COMP_ROOT$FONT_75DPI_DIR" && ls | grep '\.pcf\.gz$' | sort) | comm -13 "$BUILD/fd.files" - | head -20 | sed 's/^/diag missing: /'
-    for f in $( (cd "$COMP_ROOT$FONT_75DPI_DIR" && ls | grep '\.pcf\.gz$' | sort) | comm -13 "$BUILD/fd.files" - | head -3); do
-        echo "diag $f FONT: $(gzip -dc "$COMP_ROOT$FONT_75DPI_DIR/$f" | strings | grep -m1 '^-Adobe')"
-        grep -i -F "$(gzip -dc "$COMP_ROOT$FONT_75DPI_DIR/$f" | strings | grep -m1 '^-Adobe')" "$BUILD/fonts.dir.1" | sed 's/^/diag same name: /'
-    done
     stage font-adobe-75dpi
     local d="$DESTDIR$FONT_75DPI_DIR"
     fonts_dir_check "$d"
