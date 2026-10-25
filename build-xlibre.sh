@@ -716,7 +716,8 @@ build_libpciaccess() {
 # xkbcomp from /usr/X11/bin; compiled keymaps in /var/db/xkb, a directory
 # this repo ships (the server writes there only if it can, otherwise in
 # $XDG_RUNTIME_DIR or /tmp); logs in /var/log (Xorg.N.log); the default font path is
-# the built-in fonts only (NextBSD ships no X core fonts). Configuration is
+# /usr/X11/share/fonts/X11/misc (the core bitmap fonts built below,
+# nextbsd-xlibre#22), then the built-in fonts. Configuration is
 # read from /usr/X11/etc/X11 and /etc/X11 as upstream does; none is shipped
 # here (it belongs in nextbsd-overlays). SHA-1 from the base's libmd; no
 # libunwind, DTrace, SELinux, docs or tests; the inputtest driver is off.
@@ -743,7 +744,7 @@ build_xlibre_xserver() {
         -Dxf86-input-inputtest=false \
         -Dsha1=libmd -Dxcsecurity=true -Dfallback_input_driver=libinput \
         -Dlegacy_nvidia_padding="$nvidia" \
-        -Dlog_dir=/var/log -Ddefault_font_path=built-ins \
+        -Dlog_dir=/var/log -Ddefault_font_path="$X_PREFIX/share/fonts/X11/misc,built-ins" \
         -Dxkb_dir="$XKB_DIR" -Dxkb_bin_dir="$X_PREFIX/bin" \
         -Dxkb_output_dir="$XKM_DIR" -Ddri_driver_path="$X_PREFIX/lib/dri"
     # 25.1.9 installs upstream's NVIDIA OutputClass snippets (from
@@ -813,7 +814,8 @@ build_xlibre_xserver() {
     launch_agent_check "$DESTDIR$LAUNCH_AGENT"
     no_build_rpath "$xorg"
     # The paths compiled in.
-    for s in /var/log "$X_PREFIX/bin" "$X_PREFIX/lib/xorg/modules" "$XKM_DIR/" built-ins; do
+    for s in /var/log "$X_PREFIX/bin" "$X_PREFIX/lib/xorg/modules" "$XKM_DIR/" \
+             "$X_PREFIX/share/fonts/X11/misc,built-ins"; do
         grep -q -a -F "$s" "$xorg" || fail "Xorg does not name $s"
     done
     xkb_path_check "$xorg" Xorg
@@ -1287,6 +1289,214 @@ build_xrandr() {
 }
 
 # =============================================================================
+# The core bitmap fonts (nextbsd-xlibre#22): X.Org's misc-misc fixed fonts,
+# the cursor font and the misc font aliases, in /usr/X11/share/fonts/X11/misc
+# (X.Org's default layout under the prefix: fontrootdir $datadir/fonts/X11),
+# with fonts.dir and fonts.alias; the server's default font path puts that
+# directory ahead of built-ins. Without them only the server's built-in
+# `fixed` (one 8-bit font) and `cursor` exist: xterm cannot open its default
+# -misc-fixed-...-iso10646-1 font and twm's `fixed` fontset misses most
+# charsets of a UTF-8 locale.
+#
+# Making the fonts needs programs that run on the build host: bdftopcf
+# (BDF to PCF), font-util's ucs2any (the ISO 8859, KOI8-R and JIS X 0201
+# subsets of the Unicode BDFs) and its encoding maps, and mkfontdir
+# (mkfontscale) for fonts.dir. They are built here for the Linux build host
+# into $HOST_PREFIX (.build/host), with mkfontscale's own build inputs
+# (zlib, freetype, libfontenc, static), and never staged: nothing of them is
+# in the sysroot or the artifact. The X protocol headers they include are
+# nextbsd-xlibs' (arch-independent), from the sysroot. The fonts themselves
+# are data: their configure runs natively (no compiler) with these tools.
+# =============================================================================
+
+HOST_PREFIX="$BUILD/host"
+FONT_MISC_DIR="$X_PREFIX/share/fonts/X11/misc"
+
+# host_env <command...>: run with the build host's compiler and only
+# $HOST_PREFIX's .pc files (no sysroot), its programs first on PATH. pkgconf
+# --static, since the host libraries are static. DESTDIR (the artifact, in
+# the environment) is unset: host tools install into $HOST_PREFIX itself.
+host_env() {
+    env -u CONFIG_SITE -u DESTDIR CC=cc CFLAGS="-O2 -pipe" \
+        PKG_CONFIG="pkgconf --static" PKG_CONFIG_SYSROOT_DIR= \
+        PKG_CONFIG_LIBDIR="$HOST_PREFIX/lib/pkgconfig:$HOST_PREFIX/share/pkgconfig" \
+        PATH="$HOST_PREFIX/bin:$PATH" "$@"
+}
+
+# host_autotools_build [configure options...]: a build-host tool or library,
+# native configure out of tree, installed into $HOST_PREFIX (static only).
+host_autotools_build() {
+    (
+        cd "$COMP_BUILD"
+        host_env "$SRC_DIR/configure" --prefix="$HOST_PREFIX" \
+            --disable-shared --enable-static --disable-silent-rules "$@"
+        host_env make $JOBS
+        host_env make install
+    )
+}
+
+# host_x11_cflags: -I for nextbsd-xlibs' X protocol headers in the sysroot
+# (xproto, fontsproto), for the host tools that include them.
+host_x11_cflags() {
+    echo "-I$SYSROOT$X_PREFIX/include"
+}
+
+# host-zlib 1.3.2 — zlib for the build host (libfontenc, freetype and
+# mkfontscale read gzip-compressed fonts). zlib's own configure, static, in
+# its source tree.
+build_host_zlib() {
+    comp "host-zlib [build host, static; not shipped]"
+    fresh_dirs host-zlib
+    fetch host-zlib
+    (cd "$SRC_DIR" && host_env ./configure --prefix="$HOST_PREFIX" --static \
+        && host_env make $JOBS && host_env make install)
+    test -f "$HOST_PREFIX/lib/libz.a" || fail "host libz.a not built"
+    note "host zlib $VERSION in $HOST_PREFIX"
+}
+
+# host-freetype 2.15.0 — FreeType for the build host's mkfontscale (it opens
+# each font to check which encodings it covers). The same release as
+# nextbsd-displayserver-support's freetype; static, host zlib, nothing else.
+build_host_freetype() {
+    comp "host-freetype [build host, static; not shipped]"
+    fresh_dirs host-freetype
+    fetch host-freetype
+    host_autotools_build --with-zlib=yes --with-bzip2=no --with-png=no \
+        --with-harfbuzz=no --with-brotli=no --with-librsvg=no
+    test -f "$HOST_PREFIX/lib/libfreetype.a" || fail "host libfreetype.a not built"
+    note "host freetype $VERSION in $HOST_PREFIX"
+}
+
+# host-libfontenc 1.1.9 — font encoding tables for the build host's
+# mkfontscale. nextbsd-xlibs' release; static.
+build_host_libfontenc() {
+    comp "host-libfontenc [build host, static; not shipped]"
+    fresh_dirs host-libfontenc
+    fetch host-libfontenc
+    host_autotools_build FONTENC_CFLAGS="$(host_x11_cflags)" FONTENC_LIBS=" "
+    test -f "$HOST_PREFIX/lib/libfontenc.a" || fail "host libfontenc.a not built"
+    note "host libfontenc $VERSION in $HOST_PREFIX"
+}
+
+# font-util 1.4.2 — ucs2any and bdftruncate, the encoding maps ucs2any reads,
+# fontutil.pc (mapdir) and fontutil.m4, for the build host.
+build_font_util() {
+    comp "font-util [build host; not shipped]"
+    fresh_dirs font-util
+    fetch font-util
+    host_autotools_build
+    test -x "$HOST_PREFIX/bin/ucs2any" || fail "host ucs2any not built"
+    test -f "$HOST_PREFIX/share/fonts/X11/util/map-ISO8859-1" || fail "font-util maps not installed"
+    note "host font-util $VERSION: ucs2any, bdftruncate, maps in $HOST_PREFIX/share/fonts/X11/util"
+}
+
+# bdftopcf 1.1.2 — BDF to PCF compiler, for the build host.
+build_bdftopcf() {
+    comp "bdftopcf [build host; not shipped]"
+    fresh_dirs bdftopcf
+    fetch bdftopcf
+    host_autotools_build BDFTOPCF_CFLAGS="$(host_x11_cflags)" BDFTOPCF_LIBS=" "
+    test -x "$HOST_PREFIX/bin/bdftopcf" || fail "host bdftopcf not built"
+    note "host bdftopcf $VERSION"
+}
+
+# mkfontscale 1.2.4 — mkfontscale and mkfontdir (`mkfontscale -b -s -l`),
+# for the build host, against the host zlib, freetype and libfontenc.
+build_mkfontscale() {
+    comp "mkfontscale [build host; not shipped]"
+    fresh_dirs mkfontscale
+    fetch mkfontscale
+    host_autotools_build X11_CFLAGS="$(host_x11_cflags)" X11_LIBS=" "
+    test -x "$HOST_PREFIX/bin/mkfontscale" && test -x "$HOST_PREFIX/bin/mkfontdir" \
+        || fail "host mkfontscale/mkfontdir not built"
+    note "host mkfontscale $VERSION, mkfontdir"
+}
+
+# font_build [configure options...]: an X.Org font package. Its configure
+# runs natively (fonts are data; no compiler) with the host tools on PATH and
+# font-util's fontutil.pc, and installs under /usr/X11 into $COMP_ROOT.
+# fontrootdir is given explicitly (fontutil.pc's is the host tools' prefix).
+# The package's own mkfontdir run is skipped (MKFONTDIR=true): it would index
+# only that package's fonts; build_font_alias writes fonts.dir once for the
+# whole directory. No fc-cache: these are core X fonts, not fontconfig's.
+font_build() {
+    (
+        cd "$COMP_BUILD"
+        host_env MKFONTDIR=true FCCACHE= "$SRC_DIR/configure" \
+            --prefix="$X_PREFIX" --with-fontrootdir="$X_PREFIX/share/fonts/X11" \
+            --disable-silent-rules "$@"
+        host_env make $JOBS
+        host_env make install DESTDIR="$COMP_ROOT"
+    )
+}
+
+# font-misc-misc 1.1.3 — the misc "fixed" fonts (4x6 ... 10x20, with bold and
+# oblique), each as ISO 10646-1 and as the ISO 8859-1 ... -16, KOI8-R and
+# JIS X 0201 subsets (all of upstream's encodings), gzip-compressed PCF.
+build_font_misc_misc() {
+    comp "font-misc-misc [fonts, native]"
+    fresh_dirs font-misc-misc
+    fetch font-misc-misc
+    font_build
+    stage font-misc-misc
+    local d="$DESTDIR$FONT_MISC_DIR" f
+    for f in 6x13.pcf.gz 6x13-ISO8859-1.pcf.gz 9x15.pcf.gz 10x20.pcf.gz; do
+        test -f "$d/$f" || fail "$FONT_MISC_DIR/$f not staged"
+    done
+    note "font-misc-misc: $(ls "$d" | grep -c '\.pcf\.gz$') fonts in $FONT_MISC_DIR"
+}
+
+# font-cursor-misc 1.0.4 — the standard cursor font (cursor.pcf.gz).
+build_font_cursor_misc() {
+    comp "font-cursor-misc [fonts, native]"
+    fresh_dirs font-cursor-misc
+    fetch font-cursor-misc
+    font_build
+    stage font-cursor-misc
+    test -f "$DESTDIR$FONT_MISC_DIR/cursor.pcf.gz" || fail "$FONT_MISC_DIR/cursor.pcf.gz not staged"
+}
+
+# font-alias 1.0.6 — the misc directory's fonts.alias (fixed, variable,
+# 6x13, ...), and fonts.dir for the whole misc directory. Upstream also
+# installs aliases for the 75dpi, 100dpi and cyrillic directories, whose
+# fonts NextBSD does not ship; they are removed. fonts.dir is written here,
+# once every misc font is in the sysroot, with the build host's mkfontdir
+# (mkfontscale -b -s -l: the bitmap fonts, with entries for the legacy
+# encodings their ISO 10646-1 fonts cover).
+build_font_alias() {
+    comp "font-alias [fonts, native]"
+    fresh_dirs font-alias
+    fetch font-alias
+    font_build
+    rm -rf "$COMP_ROOT$X_PREFIX/share/fonts/X11/75dpi" "$COMP_ROOT$X_PREFIX/share/fonts/X11/100dpi" \
+        "$COMP_ROOT$X_PREFIX/share/fonts/X11/cyrillic"
+    test -f "$COMP_ROOT$FONT_MISC_DIR/fonts.alias" || fail "misc/fonts.alias not installed"
+    test -f "$SYSROOT$FONT_MISC_DIR/cursor.pcf.gz" && test -f "$SYSROOT$FONT_MISC_DIR/6x13.pcf.gz" \
+        || fail "the misc fonts are not in the sysroot; build font-misc-misc and font-cursor-misc first"
+    host_env mkfontdir -o "$COMP_ROOT$FONT_MISC_DIR/fonts.dir" "$SYSROOT$FONT_MISC_DIR"
+    stage font-alias
+    local d="$DESTDIR$FONT_MISC_DIR" n f want
+    n=$(head -1 "$d/fonts.dir")
+    [ "$n" -gt 0 ] && [ "$n" -eq "$(($(wc -l < "$d/fonts.dir") - 1))" ] || fail "fonts.dir is malformed"
+    for f in $(sed 1d "$d/fonts.dir" | awk '{print $1}' | sort -u); do
+        test -f "$d/$f" || fail "fonts.dir names $f, which is not staged"
+    done
+    for want in '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso10646-1' \
+                '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1' 'cursor'; do
+        sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -q -x -F -e "$want" \
+            || fail "fonts.dir has no $want"
+        note "fonts.dir: $want"
+    done
+    grep -q '^fixed  *-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1$' "$d/fonts.alias" \
+        || fail "fonts.alias has no fixed"
+    note "fonts.dir: $n entries, $(ls "$d" | grep -c '\.pcf\.gz$') font files; fonts.alias: $(grep -c -v '^!' "$d/fonts.alias") aliases"
+    note "charsets of -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60 (twm's and xterm's fixed):"
+    sed 1d "$d/fonts.dir" | awk '{print $2}' \
+        | sed -n 's/^-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-//p' | sort -u | tr '\n' ' '
+    echo
+}
+
+# =============================================================================
 # The session clients (nextbsd-xlibre#18, #22): twm, xclock and xterm, what
 # the stock xinitrc runs (it ends with `exec xterm`, and xterm is startx's
 # fallback client), so `startx` gives a usable session. Each is a program in
@@ -1433,6 +1643,15 @@ COMPONENTS="
     setxkbmap
     xinput
     xrandr
+    host-zlib
+    host-freetype
+    host-libfontenc
+    font-util
+    bdftopcf
+    mkfontscale
+    font-misc-misc
+    font-cursor-misc
+    font-alias
     twm
     xclock
     xterm

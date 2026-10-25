@@ -8,7 +8,8 @@ name: Build NextBSD xlibre (the X server stack)
 # modesetting and glamor), nextbsd-xlibre#3, its input and video drivers,
 # nextbsd-xlibre#4, and the X.Org tools (xauth, xinit, xset, setxkbmap,
 # xinput, xrandr), nextbsd-xlibre#5, twm, xclock and xterm,
-# nextbsd-xlibre#18 and #22, plus
+# nextbsd-xlibre#18 and #22, the core bitmap fonts (misc-misc, cursor,
+# aliases), nextbsd-xlibre#22, plus
 # the org.nextbsd.xlibre LaunchAgent that starts the server on demand,
 # nextbsd-xlibre#13. The sysroot is
 # compat's `continuous` base with nextbsd-displayserver-support's (libdrm,
