@@ -1425,13 +1425,17 @@ build_mkfontscale() {
 # The package's own mkfontdir run is skipped (MKFONTDIR=true): it would index
 # only that package's fonts; build_font_alias writes fonts.dir once for the
 # whole directory. No fc-cache: these are core X fonts, not fontconfig's.
+# make runs serially: font-misc-misc's suffix rules (ucs2any, bdftruncate,
+# bdftopcf) are not safe in parallel, and one CI run produced a misc
+# directory whose fonts.dir lacked the ISO8859-1 13-120 fixed font
+# (nextbsd-xlibre#22); the fonts take seconds either way.
 font_build() {
     (
         cd "$COMP_BUILD"
         host_env MKFONTDIR=true FCCACHE= "$SRC_DIR/configure" \
             --prefix="$X_PREFIX" --with-fontrootdir="$X_PREFIX/share/fonts/X11" \
             --disable-silent-rules "$@"
-        host_env make $JOBS
+        host_env make -j1
         host_env make install DESTDIR="$COMP_ROOT"
     )
 }
@@ -1462,6 +1466,49 @@ build_font_cursor_misc() {
     test -f "$DESTDIR$FONT_MISC_DIR/cursor.pcf.gz" || fail "$FONT_MISC_DIR/cursor.pcf.gz not staged"
 }
 
+# The CJK bitmap fonts (nextbsd-xlibre#22): the JIS X 0208, KS C 5601 and
+# GB 2312 charsets of the en_US.UTF-8 XLC_LOCALE fontset (libX11's, which
+# C.UTF-8 and the other UTF-8 locales use), in the same misc directory. They
+# exist only at 16 and 24 pixels; JIS X 0201 comes from font-misc-misc
+# (7x14 only).
+#
+# cjk_font_build <name> <file.pcf.gz>...: one CJK font package, staged.
+cjk_font_build() {
+    local name="$1" f
+    shift
+    comp "$name [fonts, native]"
+    fresh_dirs "$name"
+    fetch "$name"
+    font_build
+    stage "$name"
+    for f in "$@"; do
+        test -f "$DESTDIR$FONT_MISC_DIR/$f" || fail "$FONT_MISC_DIR/$f not staged"
+    done
+    note "$name: $*"
+}
+
+# font-jis-misc 1.0.4 — JIS X 0208 kanji, 16 and 24 pixels.
+build_font_jis_misc() {
+    cjk_font_build font-jis-misc jiskan16.pcf.gz jiskan24.pcf.gz
+}
+
+# font-daewoo-misc 1.0.4 — KS C 5601 hangul (Gothic 16, Mincho 16 and 24).
+build_font_daewoo_misc() {
+    cjk_font_build font-daewoo-misc hanglg16.pcf.gz hanglm16.pcf.gz hanglm24.pcf.gz
+}
+
+# font-isas-misc 1.0.4 — GB 2312 hanzi (Song ti 16 and 24, Fangsong ti 16).
+build_font_isas_misc() {
+    cjk_font_build font-isas-misc gb16fs.pcf.gz gb16st.pcf.gz gb24st.pcf.gz
+}
+
+# The charsets of libX11's en_US.UTF-8 XLC_LOCALE fontset (fs0 ... fs16;
+# ISO8859-1 serves both fs0 and fs1), which XCreateFontSet() fills in a
+# UTF-8 locale.
+UTF8_FONTSET_CHARSETS="iso8859-1 iso8859-2 iso8859-3 iso8859-4 iso8859-5 koi8-r
+    iso8859-7 iso8859-9 iso8859-13 iso8859-14 iso8859-15 jisx0208.1983-0
+    ksc5601.1987-0 gb2312.1980-0 jisx0201.1976-0 iso10646-1"
+
 # font-alias 1.0.6 — the misc directory's fonts.alias (fixed, variable,
 # 6x13, ...), and fonts.dir for the whole misc directory. Upstream also
 # installs aliases for the 75dpi, 100dpi and cyrillic directories, whose
@@ -1487,19 +1534,38 @@ build_font_alias() {
     for f in $(sed 1d "$d/fonts.dir" | awk '{print $1}' | sort -u); do
         test -f "$d/$f" || fail "fonts.dir names $f, which is not staged"
     done
+    # ... and every font file staged is in fonts.dir (mkfontdir skips a file
+    # it cannot identify, e.g. a damaged PCF).
+    for f in $(cd "$d" && ls | grep '\.pcf\.gz$'); do
+        if ! sed 1d "$d/fonts.dir" | awk '{print $1}' | grep -q -x -F "$f"; then
+            ls -l "$d/$f" >&2
+            fail "$f is staged but not in fonts.dir"
+        fi
+    done
     for want in '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso10646-1' \
                 '-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1' 'cursor'; do
-        sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -q -x -F -e "$want" \
-            || fail "fonts.dir has no $want"
+        if ! sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -q -x -F -e "$want"; then
+            grep -e '-13-120-75-75-c-60-' "$d/fonts.dir" >&2 || true
+            fail "fonts.dir has no $want"
+        fi
         note "fonts.dir: $want"
     done
     grep -q '^fixed  *-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1$' "$d/fonts.alias" \
         || fail "fonts.alias has no fixed"
     note "fonts.dir: $n entries, $(ls "$d" | grep -c '\.pcf\.gz$') font files; fonts.alias: $(grep -c -v '^!' "$d/fonts.alias") aliases"
-    note "charsets of -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60 (twm's and xterm's fixed):"
+    note "charsets of -misc-fixed-medium-r-semicondensed--13-120-75-75-c-60 (the fixed alias's font):"
     sed 1d "$d/fonts.dir" | awk '{print $2}' \
         | sed -n 's/^-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-//p' | sort -u | tr '\n' ' '
     echo
+    # Every charset of a UTF-8 locale's fontset has at least one font here,
+    # each listed with the pixel sizes that carry it.
+    local cs sizes
+    for cs in $UTF8_FONTSET_CHARSETS; do
+        sizes=$(sed 1d "$d/fonts.dir" | awk '{ $1 = ""; sub(/^ /, ""); print }' | grep -i -e "-$cs\$" \
+            | awk -F- '{print $8}' | sort -n -u | tr '\n' ' ')
+        [ -n "$sizes" ] || fail "fonts.dir has no font for the UTF-8 fontset charset $cs"
+        note "UTF-8 fontset charset $cs: pixel sizes $sizes"
+    done
 }
 
 # =============================================================================
@@ -1657,6 +1723,9 @@ COMPONENTS="
     mkfontscale
     font-misc-misc
     font-cursor-misc
+    font-jis-misc
+    font-daewoo-misc
+    font-isas-misc
     font-alias
     twm
     xclock

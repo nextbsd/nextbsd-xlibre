@@ -182,6 +182,9 @@ and the input stack from `nextbsd-displayserver-support`'s.
 | `xrandr` | 1.5.4 | meson | `/usr/X11/bin/xrandr`, `xrandr.1` (not `xkeystone`, a script for the nickle interpreter) | nextbsd/nextbsd-xlibre#5 |
 | `font-misc-misc` | 1.1.3 | autotools (data) | the misc `fixed` fonts in `/usr/X11/share/fonts/X11/misc` | nextbsd/nextbsd-xlibre#22 |
 | `font-cursor-misc` | 1.0.4 | autotools (data) | `cursor.pcf.gz` | nextbsd/nextbsd-xlibre#22 |
+| `font-jis-misc` | 1.0.4 | autotools (data) | `jiskan16`, `jiskan24` (JIS X 0208) | nextbsd/nextbsd-xlibre#22 |
+| `font-daewoo-misc` | 1.0.4 | autotools (data) | `hanglg16`, `hanglm16`, `hanglm24` (KS C 5601) | nextbsd/nextbsd-xlibre#22 |
+| `font-isas-misc` | 1.0.4 | autotools (data) | `gb16fs`, `gb16st`, `gb24st` (GB 2312) | nextbsd/nextbsd-xlibre#22 |
 | `font-alias` | 1.0.6 | autotools (data) | misc `fonts.alias`; `fonts.dir` for the misc directory | nextbsd/nextbsd-xlibre#22 |
 | `host-zlib`, `host-freetype`, `host-libfontenc`, `font-util`, `bdftopcf`, `mkfontscale` | 1.3.2, 2.15.0, 1.1.9, 1.4.2, 1.1.2, 1.2.4 | autotools, **build host only** | nothing shipped: the tools that make the fonts and `fonts.dir` | nextbsd/nextbsd-xlibre#22 |
 | `twm` | 1.0.13.1 | autotools | `/usr/X11/bin/twm`, `/usr/X11/share/X11/twm/system.twmrc`, `twm.1` | nextbsd/nextbsd-xlibre#18 |
@@ -376,7 +379,9 @@ each library it links resolves there and that no build-host RPATH is set.
 
 X.Org's `font-misc-misc` (the `fixed` family, 4x6 to 10x20, each as ISO 10646-1
 and as the ISO 8859-1 to -16, KOI8-R and JIS X 0201 subsets),
-`font-cursor-misc` (the cursor font) and `font-alias` (the misc `fonts.alias`:
+`font-cursor-misc` (the cursor font), the CJK bitmap fonts `font-jis-misc`
+(JIS X 0208), `font-daewoo-misc` (KS C 5601) and `font-isas-misc` (GB 2312),
+16 and 24 pixels only, and `font-alias` (the misc `fonts.alias`:
 `fixed`, `variable`, `6x13`, ...) are installed as gzip-compressed PCF in
 `/usr/X11/share/fonts/X11/misc`, X.Org's default layout under the prefix
 (`$datadir/fonts/X11/<dir>`), with a `fonts.dir` for the whole directory. The
