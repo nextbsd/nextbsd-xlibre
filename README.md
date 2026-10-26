@@ -100,7 +100,10 @@ pinned clang/lld 19.1.7 in `/usr/lib/llvm-19`, meson, ninja, cmake, pkgconf,
 autotools, X.Org util-macros, python3, perl and bison) with compat's
 `continuous` base extracted as the sysroot and the `continuous` artifacts of
 `nextbsd-displayserver-support`, `nextbsd-xlibs` and then `nextbsd-mesa`
-extracted on top, the same way `nextbsd-printing-support` stages the repos it
+(both of its artifacts: the X-free core `nextbsd-mesa-<arch>` and
+`nextbsd-mesa-x11-<arch>`, which holds libglvnd's `libGL.so.1` and
+`libGLX.so.0`, Mesa's GLX, `GL/glx.h`, `gl.pc` and `glx.pc`;
+nextbsd/nextbsd-mesa#10) extracted on top, the same way `nextbsd-printing-support` stages the repos it
 builds against. Until nextbsd/nextbsd-xlibs#9, `nextbsd-xlibs`' artifact still
 carries its old `/usr/X11` copies of libdrm, pixman, expat, freetype,
 fontconfig and libxkbcommon (the same versions); the workflow removes from the
@@ -239,7 +242,7 @@ FreeBSD's port builds (maintainer decision, 2026-10-25).
 | What | Choice |
 |---|---|
 | Servers | `Xorg` only. Xvfb, Xnest, Xephyr, Xfbdev, XWin and XQuartz are off; no Xwayland |
-| Graphics (D9) | glamor, GBM, the modesetting driver, GLX with DRI, DRI2 and DRI3 on, against `nextbsd-mesa`'s libGL, libEGL and libgbm, `nextbsd-displayserver-support`'s libdrm and pixman (in `/usr/lib`) and this repo's libepoxy. On amd64 the legacy NVIDIA `ScreenRec` padding is on (as FreeBSD builds it), so NVIDIA's `nvidia_drv.so` loads |
+| Graphics (D9) | glamor, GBM, the modesetting driver, GLX with DRI, DRI2 and DRI3 on, against `nextbsd-mesa`'s libGL (its X artifact), libEGL and libgbm (its core artifact), `nextbsd-displayserver-support`'s libdrm and pixman (in `/usr/lib`) and this repo's libepoxy. On amd64 the legacy NVIDIA `ScreenRec` padding is on (as FreeBSD builds it), so NVIDIA's `nvidia_drv.so` loads |
 | Devices | the udev config backend and KMS device discovery (the platform bus) through `nextbsd-displayserver-support`'s libudev (libudev-devd; `-Dudev=true -Dudev_kms=true`, as FreeBSD's port); `libinput` is the fallback input driver. PCI through `libpciaccess` |
 | Not built | HAL, systemd-logind, systemd notify, seatd/libseat, D-Bus, SELinux, DTrace, libunwind, docs, tests, the `inputtest` driver |
 | Privilege | `/usr/X11/bin/Xorg` is **set-uid root** (mode 4555), as upstream installs it without a wrapper (nextbsd/nextbsd-xlibre#20): NextBSD has no seat manager, and the server needs root for the console/VT, `/dev/dri` and `/dev/input`. **No suid wrapper** (`Xorg.wrap`) and no console-only restriction: any user may start X, locally or over SSH. The build allows exactly this one set-uid file and refuses any other set-uid or set-gid file. A rootless display server is later E25 work |

@@ -37,7 +37,8 @@
 # inputs are sources.lock, the NextBSD base (compat) sysroot, and
 # nextbsd-displayserver-support's (the shared libraries and XKB data, in
 # /usr), nextbsd-xlibs' (the X client libraries, libxkbfile) and
-# nextbsd-mesa's (libglvnd, Mesa's GL/EGL/GBM) `continuous` artifacts on top.
+# nextbsd-mesa's two (the X-free core and the X one with libGL, libGLX and
+# Mesa's GLX, nextbsd-mesa#10) `continuous` artifacts on top.
 #
 # EXECUTION CONTEXT (set up by CI before this runs)
 #   Inside the nextbsd-toolchain container (pinned clang/lld 19.1.7 in
@@ -729,6 +730,12 @@ build_xlibre_xserver() {
         [ -f "$SYSROOT$X_PREFIX/include/$h" ] \
             || fail "$SYSROOT$X_PREFIX has no nextbsd-mesa ($h); stage its continuous artifact first"
     done
+    # GLX and glamor need libGL, GL/glx.h, gl.pc and glx.pc, which are in
+    # nextbsd-mesa's X artifact (nextbsd-mesa-x11-<arch>, nextbsd-mesa#10).
+    for h in include/GL/glx.h lib/pkgconfig/gl.pc lib/pkgconfig/glx.pc lib/libGL.so.1; do
+        [ -e "$SYSROOT$X_PREFIX/$h" ] \
+            || fail "$SYSROOT$X_PREFIX has no $h; stage nextbsd-mesa's X artifact (nextbsd-mesa-x11-$T) too"
+    done
     fresh_dirs xlibre-xserver
     fetch xlibre-xserver
     local nvidia=false
@@ -802,9 +809,15 @@ build_xlibre_xserver() {
         needed_check "$xorg" "$s"
     done
     needed_resolve "$xorg"
-    for m in libglamoregl.so libexa.so libwfb.so drivers/modesetting_drv.so; do
+    for m in libglamoregl.so extensions/libglx.so libexa.so libwfb.so drivers/modesetting_drv.so; do
         needed_resolve "$mods/$m"
     done
+    # libGL.so.1 (GLX and glamor) comes from nextbsd-mesa's X artifact.
+    for m in libglamoregl.so extensions/libglx.so; do
+        needed_check "$mods/$m" libGL.so.1
+    done
+    [ -e "$SYSROOT$X_PREFIX/lib/libGL.so.1" ] || fail "libGL.so.1 is not in $X_PREFIX/lib"
+    note "libglamoregl.so and libglx.so: libGL.so.1 in $X_PREFIX/lib (nextbsd-mesa-x11)"
     not_needed "$xorg" 'libdbus' 'libsystemd' 'libseat' 'libunwind' 'libhal' \
         'libselinux' 'libaudit' 'libbsd' 'liblaunch'
     # -launchd (patch 0005) is built in; liblaunch is dlopen()ed for it only.
