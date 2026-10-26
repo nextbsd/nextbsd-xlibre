@@ -1,7 +1,7 @@
 name: Build NextBSD xlibre (the X server stack)
 
 # Cross-builds the XLibre server's stack into /usr/X11 for amd64 and arm64 on
-# the x86_64 runner, inside the per-arch nextbsd-kernel-toolchain container,
+# the x86_64 runner, inside the per-arch nextbsd-toolchain container,
 # from the pinned tarballs in sources.lock. So far: the server-support
 # libraries (libepoxy, libxcvt) and the XKB compiler (xkbcomp),
 # nextbsd-xlibre#1, the XLibre server (libpciaccess, xlibre-xserver with
@@ -55,7 +55,7 @@ jobs:
       # binutils at $CROSS_BINDIR (set by the image), plus meson 1.12.1, ninja,
       # cmake, pkgconf, autotools, X.Org util-macros, python3, perl and bison
       # (nextbsd-toolchain#13). Nothing is apt-installed here.
-      image: ghcr.io/nextbsd/nextbsd-kernel-toolchain:${{ matrix.arch }}-${{ inputs.fbsd_sha && format('fbsd-{0}', inputs.fbsd_sha) || 'latest' }}
+      image: ghcr.io/nextbsd/nextbsd-toolchain:${{ matrix.arch }}-${{ inputs.fbsd_sha && format('fbsd-{0}', inputs.fbsd_sha) || 'latest' }}
     steps:
       - uses: actions/checkout@v4
 

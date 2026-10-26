@@ -95,7 +95,7 @@ unpacks into `.build/src/` and builds out of tree under `.build/`.
 
 ## Build model
 
-`build-xlibre.sh` runs inside the `nextbsd-kernel-toolchain` container (the
+`build-xlibre.sh` runs inside the `nextbsd-toolchain` container (the
 pinned clang/lld 19.1.7 in `/usr/lib/llvm-19`, meson, ninja, cmake, pkgconf,
 autotools, X.Org util-macros, python3, perl and bison) with compat's
 `continuous` base extracted as the sysroot and the `continuous` artifacts of

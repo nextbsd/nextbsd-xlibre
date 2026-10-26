@@ -40,7 +40,7 @@
 # nextbsd-mesa's (libglvnd, Mesa's GL/EGL/GBM) `continuous` artifacts on top.
 #
 # EXECUTION CONTEXT (set up by CI before this runs)
-#   Inside the nextbsd-kernel-toolchain container (pinned clang/lld 19.1.7 in
+#   Inside the nextbsd-toolchain container (pinned clang/lld 19.1.7 in
 #   $CROSS_BINDIR, meson, ninja, cmake, pkgconf, autotools, util-macros,
 #   python3, perl, bison), with compat's `continuous` base, then
 #   nextbsd-displayserver-support's, nextbsd-xlibs' and nextbsd-mesa's
