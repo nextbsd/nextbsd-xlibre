@@ -10,7 +10,7 @@ Description: config/udev: kbdmux and console-attached keyboards on NextBSD.
     InputClass matches them and no driver attaches. vbox pointers get
     vboxmouse.
  Unchanged from FreeBSD's port (which builds 25.1.9); it applies to 25.1.9
- as it is.
+ and 25.1.11 as it is.
 Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-config_udev.c
  (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-config_udev.c)
 Forwarded: not yet; a candidate for X11Libre under #ifdef __FreeBSD__

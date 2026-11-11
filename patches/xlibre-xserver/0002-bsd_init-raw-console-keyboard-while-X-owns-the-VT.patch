@@ -5,7 +5,7 @@ Description: bsd_init: put the console keyboard in K_RAW while X owns the VT.
  keyboard mode, sets K_RAW and a raw termios, and restores both in
  xf86CloseConsole().
  Unchanged from FreeBSD's port (which builds 25.1.9); it applies to 25.1.9
- as it is.
+ and 25.1.11 as it is.
 Origin: FreeBSD ports, x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_bsd_bsd__init.c
  (https://github.com/freebsd/freebsd-ports/blob/956f979f4876d6ea542f5fdae60d8b7166b87345/x11-servers/xlibre-server/files/patch-hw_xfree86_os-support_bsd_bsd__init.c)
 Forwarded: not yet; a candidate for X11Libre (BSD console handling)

@@ -667,12 +667,13 @@ build_libpciaccess() {
     pc_check pciaccess "$VERSION"
 }
 
-# xlibre-xserver 25.1.9 — the XLibre X server: Xorg, its modules and the SDK
+# xlibre-xserver 25.1.11 — the XLibre X server: Xorg, its modules and the SDK
 # (headers, xorg-server.pc) the drivers build against. meson. The tag archive
-# is pinned (no release tarballs); 25.1.9 is upstream's "Latest" release, every
-# 25.2.x being a pre-release (E23 D5's fallback). patches/xlibre-xserver/ holds
-# the FreeBSD port's server patches that 25.1.9 still needs (D11; series says
-# which and why the others are not carried).
+# is pinned (no release tarballs); 25.1.11 is upstream's "Latest" release, the
+# newest of the 25.1 series (E23 D5; 25.2 is a new module ABI, separate work).
+# patches/xlibre-xserver/ holds the FreeBSD port's server patches that 25.1.x
+# still needs (D11; series says which and why the others are not carried) and
+# NextBSD's own.
 #
 # Servers: Xorg only. Xvfb, Xnest, Xephyr, Xfbdev, XWin and XQuartz are off;
 # there is no Xwayland in this tree.
@@ -682,7 +683,7 @@ build_libpciaccess() {
 # libepoxy are all in the sysroot, so glamor, the modesetting driver (meson
 # builds it only with GBM), GLX with DRI, DRI2 and DRI3 are on; meson is told
 # so explicitly, so a missing dependency fails the build instead of quietly
-# dropping them. 25.1.9 has no gbm option (25.2 added -Dgbm): it looks GBM up
+# dropping them. 25.1.11 has no gbm option (25.2 added -Dgbm): it looks GBM up
 # whenever glamor is built and builds glamoregl and modesetting only if it is
 # found, so the module checks below are what fail on a missing libgbm. On
 # amd64 the legacy NVIDIA ScreenRec padding is on, as in
@@ -711,7 +712,7 @@ build_libpciaccess() {
 # this cross build pkgconf returns it with the sysroot in front, so it is
 # given explicitly as /usr/X11/lib/dri (patch 0006 adds -Ddri_driver_path).
 #
-# Paths: modules under /usr/X11/lib/xorg/modules (25.1.9 installs them in its
+# Paths: modules under /usr/X11/lib/xorg/modules (25.1.11 installs them in its
 # xlibre-25 ABI directory there, which the loader searches first); XKB data
 # /usr/share/X11/xkb (nextbsd-displayserver-support's xkeyboard-config, E25),
 # xkbcomp from /usr/X11/bin; compiled keymaps in /var/db/xkb, a directory
@@ -755,7 +756,7 @@ build_xlibre_xserver() {
         -Dlog_dir=/var/log -Ddefault_font_path="$X_PREFIX/share/fonts/X11/misc,$X_PREFIX/share/fonts/X11/75dpi,built-ins" \
         -Dxkb_dir="$XKB_DIR" -Dxkb_bin_dir="$X_PREFIX/bin" \
         -Dxkb_output_dir="$XKM_DIR" -Ddri_driver_path="$X_PREFIX/lib/dri"
-    # 25.1.9 installs upstream's NVIDIA OutputClass snippets (from
+    # 25.1.11 installs upstream's NVIDIA OutputClass snippets (from
     # config/meson.build): 10-nvidia.conf and 10-nvidia-modules.conf in
     # share/X11/xorg.conf.d (written for Linux 6.12+'s nvidia-drm, with a
     # ModulePath of /usr/X11/lib/nvidia/xorg) and Debian copies in
@@ -812,12 +813,16 @@ build_xlibre_xserver() {
     for m in libglamoregl.so extensions/libglx.so libexa.so libwfb.so drivers/modesetting_drv.so; do
         needed_resolve "$mods/$m"
     done
-    # libGL.so.1 (GLX and glamor) comes from nextbsd-mesa's X artifact.
-    for m in libglamoregl.so extensions/libglx.so; do
-        needed_check "$mods/$m" libGL.so.1
+    # libGL.so.1 comes from nextbsd-mesa's X artifact. Since 25.1.11 the GLX
+    # code glamor uses is no longer linked statically into libglamoregl.so;
+    # Xorg exports it instead (upstream 37a06b0397 and bed89b8bf6), so Xorg
+    # and libglx.so need libGL.so.1 and libglamoregl.so does not.
+    # NextBSD-xlibre already depends on NextBSD-mesa-x11, which ships it.
+    for m in "$xorg" "$mods/extensions/libglx.so"; do
+        needed_check "$m" libGL.so.1
     done
     [ -e "$SYSROOT$X_PREFIX/lib/libGL.so.1" ] || fail "libGL.so.1 is not in $X_PREFIX/lib"
-    note "libglamoregl.so and libglx.so: libGL.so.1 in $X_PREFIX/lib (nextbsd-mesa-x11)"
+    note "Xorg and libglx.so: libGL.so.1 in $X_PREFIX/lib (nextbsd-mesa-x11)"
     not_needed "$xorg" 'libdbus' 'libsystemd' 'libseat' 'libunwind' 'libhal' \
         'libselinux' 'libaudit' 'libbsd' 'liblaunch'
     # -launchd (patch 0005) is built in; liblaunch is dlopen()ed for it only.

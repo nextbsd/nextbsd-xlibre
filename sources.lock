@@ -31,11 +31,12 @@ xkbcomp             1.5.0         2ac31f26600776db6d9cd79b3fcd272263faebac7eb85f
 # audit 3, section 2.2 C) not built by nextbsd-xlibs.
 libpciaccess        0.19          3c55aa86c82e54a4e3109786f0463530d53b36b6d1cfd14616454f985dd2aa43  https://xorg.freedesktop.org/archive/individual/lib/libpciaccess-0.19.tar.xz
 # xlibre-xserver publishes no release tarball (its GitHub releases have no
-# assets): the tag archive, as FreeBSD's port fetches it. 25.1.9 is the
-# release upstream marks "Latest"; every 25.2.x is a pre-release (testing), so
-# the pin is E23 D5's fallback (maintainer decision, 2026-10-25). The SHA-256
-# matches FreeBSD ports' x11-servers/xlibre-server distinfo for 25.1.9.
-xlibre-xserver      25.1.9        be30a5ede7975995b196717af190664eb07aa43e3608eaf9c582386941715f8e  https://github.com/X11Libre/xserver/archive/refs/tags/xlibre-xserver-25.1.9.tar.gz
+# assets): the tag archive. 25.1.11 is the release upstream marks "Latest",
+# the newest of the 25.1 series E23 D5 chose when every 25.2.x was a
+# pre-release (maintainer decision, 2026-10-25). 25.2.3 is now a release too,
+# but 25.2 is a new module ABI: moving to it is separate work. The SHA-256 is
+# that of GitHub's tag archive.
+xlibre-xserver      25.1.11       9696857b273a591d98791060d944b1dad6eb0980cc709fb993db1609fefbece2  https://github.com/X11Libre/xserver/archive/refs/tags/xlibre-xserver-25.1.11.tar.gz
 
 # ---- the X.Org tools (nextbsd-xlibre#5, E23 step 13), in build order ----
 # xauth before xinit: startx calls /usr/X11/bin/xauth. SHA-256s match FreeBSD
