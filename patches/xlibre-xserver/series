@@ -44,3 +44,8 @@
 #         the only device, so autoconfiguration's scfb fallback does not add
 #         a second screen next to modesetting (nextbsd/nextbsd-xlibre#22).
 0007-xf86Bus-scfb-must-be-the-only-device.patch
+#   0008  configServerFlags: evdev XKB rules for hotplugged keyboards when the
+#         kernel has evdev(4), as on Linux; upstream picks "base" on every
+#         other system, which mismaps the arrows, Home/End and Page Up/Down
+#         for libinput's evdev keycodes (nextbsd/nextbsd-xlibre#35).
+0008-xf86Config-evdev-XKB-rules-for-hotplugged-keyboards.patch
