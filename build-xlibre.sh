@@ -813,12 +813,16 @@ build_xlibre_xserver() {
     for m in libglamoregl.so extensions/libglx.so libexa.so libwfb.so drivers/modesetting_drv.so; do
         needed_resolve "$mods/$m"
     done
-    # libGL.so.1 (GLX and glamor) comes from nextbsd-mesa's X artifact.
-    for m in libglamoregl.so extensions/libglx.so; do
-        needed_check "$mods/$m" libGL.so.1
+    # libGL.so.1 comes from nextbsd-mesa's X artifact. Since 25.1.11 the GLX
+    # code glamor uses is no longer linked statically into libglamoregl.so;
+    # Xorg exports it instead (upstream 37a06b0397 and bed89b8bf6), so Xorg
+    # and libglx.so need libGL.so.1 and libglamoregl.so does not.
+    # NextBSD-xlibre already depends on NextBSD-mesa-x11, which ships it.
+    for m in "$xorg" "$mods/extensions/libglx.so"; do
+        needed_check "$m" libGL.so.1
     done
     [ -e "$SYSROOT$X_PREFIX/lib/libGL.so.1" ] || fail "libGL.so.1 is not in $X_PREFIX/lib"
-    note "libglamoregl.so and libglx.so: libGL.so.1 in $X_PREFIX/lib (nextbsd-mesa-x11)"
+    note "Xorg and libglx.so: libGL.so.1 in $X_PREFIX/lib (nextbsd-mesa-x11)"
     not_needed "$xorg" 'libdbus' 'libsystemd' 'libseat' 'libunwind' 'libhal' \
         'libselinux' 'libaudit' 'libbsd' 'liblaunch'
     # -launchd (patch 0005) is built in; liblaunch is dlopen()ed for it only.
