@@ -1,0 +1,42 @@
+Description: xf86Config: evdev XKB rules for hotplugged keyboards on NextBSD.
+ The server's default XKB rules are chosen in configServerFlags(), not from
+ the xkb_default_rules meson option: "evdev" on Linux when input devices are
+ hotplugged, and "base" everywhere else. NextBSD hotplugs keyboards through
+ the udev config backend (libudev-devd on IOKit) and xf86-input-libinput,
+ which reports evdev keycodes, so with "base" (xfree86 keycodes) the arrow
+ keys, Home/End, Insert/Delete and Page Up/Down produced the wrong keysyms or
+ none: Right arrow did nothing in Terminal.app or xterm. This picks "evdev"
+ when hotplugging and the kernel has evdev(4), the same test 0001 uses to
+ hand keyboards to the kbd driver instead; without evdev(4), or with
+ hotplugging off, the kbd driver's "base" stays.
+Origin: NextBSD
+ (nextbsd/nextbsd-xlibre#35)
+Forwarded: not yet; a candidate for X11Libre under __FreeBSD__ (FreeBSD's
+ udev backend hands keyboards to libinput the same way)
+---
+--- a/hw/xfree86/common/xf86Config.c
++++ b/hw/xfree86/common/xf86Config.c
+@@ -49,6 +49,9 @@
+ #include <sys/stat.h>
+ #include <sys/types.h>
+ #include <grp.h>
++#ifdef __FreeBSD__
++#include <unistd.h>             /* feature_present() */
++#endif
+ 
+ #include "dix/dix_priv.h"
+ #include "dix/resource_priv.h"
+@@ -897,6 +900,13 @@
+      * evdev rules set. */
+ #if defined(__linux__)
+     if (!xf86Info.forceInputDevices)
++        rules = "evdev";
++    else
++#elif defined(__FreeBSD__)
++    /* Hotplugged keyboards get xf86-input-libinput, which reports evdev
++     * keycodes, as on Linux. Without evdev(4) the udev backend gives them
++     * the kbd driver instead (config/udev.c), which needs "base". */
++    if (!xf86Info.forceInputDevices && feature_present("evdev_support"))
+         rules = "evdev";
+     else
+ #endif
