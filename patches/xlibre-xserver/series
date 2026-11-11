@@ -1,11 +1,11 @@
 # patches/xlibre-xserver/series: applied in order with patch -p1.
 #
 # FreeBSD's port (x11-servers/xlibre-server/files, ports commit 956f979f48)
-# carries 8 patches for the server (E23 D11); the port builds 25.1.9, the
-# version pinned here. 4 are needed and carried, each with its Origin; all 4
-# apply to 25.1.9 exactly as the port has them (0002 and 0004 had been rebased
-# for 25.2.2 and are the port's hunks again). 0004 is still needed: 25.1.9's
-# meson.build adds the same host epoll-shim include path.
+# carries 8 patches for the server (E23 D11), written for 25.1.9. 4 are needed
+# and carried, each with its Origin; all 4 apply to 25.1.9 and 25.1.11 (the
+# version pinned here) exactly as the port has them (0002 and 0004 had been
+# rebased for 25.2.2 and are the port's hunks again). 0004 is still needed:
+# 25.1.11's meson.build adds the same host epoll-shim include path.
 0001-config-udev-kbdmux-and-no-evdev-drivers.patch
 0002-bsd_init-raw-console-keyboard-while-X-owns-the-VT.patch
 0003-os-support-build-SlowBcopy-on-BSD.patch
@@ -13,7 +13,7 @@
 #
 # The other 4 are not carried:
 #   patch-hw_xfree86_os-support_shared_seatd-libseat.c
-#       25.1.9 lacks it (the XSERVER_PLATFORM_BUS guards; 25.2.x has them),
+#       25.1.x lacks it (the XSERVER_PLATFORM_BUS guards; 25.2.x has them),
 #       but it only changes shared/seatd-libseat.c, which is compiled only
 #       with -Dseatd_libseat=true; seatd is off here.
 #   patch-hw_xfree86_xorg-wrapper.c, patch-hw_xfree86_meson.build

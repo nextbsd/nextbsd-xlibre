@@ -19,7 +19,7 @@ nextbsd-xlibre                  the XLibre server, drivers, xkbcomp, tools   <- 
 ```
 
 It builds the server's support libraries and the XKB keymap compiler
-(nextbsd/nextbsd-xlibre#1), the XLibre server 25.1.9 with modesetting and
+(nextbsd/nextbsd-xlibre#1), the XLibre server 25.1.11 with modesetting and
 glamor (nextbsd/nextbsd-xlibre#3), its input and video drivers
 (nextbsd/nextbsd-xlibre#4), and the X.Org tools xauth, xinit (with startx),
 xset, setxkbmap, xinput and xrandr (nextbsd/nextbsd-xlibre#5), and twm,
@@ -176,7 +176,7 @@ and the input stack from `nextbsd-displayserver-support`'s.
 | `libxcvt` | 0.1.3 | meson | `libxcvt.so.0`, `/usr/X11/bin/cvt` | nextbsd/nextbsd-xlibre#1 |
 | `xkbcomp` | 1.5.0 | meson | `/usr/X11/bin/xkbcomp`, `xkbcomp.pc` (XKB root `/usr/share/X11/xkb`) | nextbsd/nextbsd-xlibre#1 |
 | `libpciaccess` | 0.19 | meson | `libpciaccess.so.0`, `pciaccess.h`; `/usr/X11/share/hwdata/pci.ids` links to the base's `/usr/share/misc/pci_vendors` | nextbsd/nextbsd-xlibre#3 |
-| `xlibre-xserver` | 25.1.9 | meson | `/usr/X11/bin/Xorg` (and `X`), its modules in `/usr/X11/lib/xorg/modules/xlibre-25` (modesetting, glamoregl, glx, exa, fbdevhw, int10, shadow, shadowfb, vgahw, wfb), the Xorg SDK (`include/xorg`, `xorg-server.pc`) for the drivers, `protocol.txt`, man pages. 4 FreeBSD port patches (see [server](#the-x-server)) | nextbsd/nextbsd-xlibre#3 |
+| `xlibre-xserver` | 25.1.11 | meson | `/usr/X11/bin/Xorg` (and `X`), its modules in `/usr/X11/lib/xorg/modules/xlibre-25` (modesetting, glamoregl, glx, exa, fbdevhw, int10, shadow, shadowfb, vgahw, wfb), the Xorg SDK (`include/xorg`, `xorg-server.pc`) for the drivers, `protocol.txt`, man pages. 4 FreeBSD port patches (see [server](#the-x-server)) | nextbsd/nextbsd-xlibre#3 |
 | `xauth` | 1.1.5 | autotools | `/usr/X11/bin/xauth`, `xauth.1` | nextbsd/nextbsd-xlibre#5 |
 | `xinit` | 1.4.4 | autotools | `/usr/X11/bin/xinit` and `startx`, `/usr/X11/etc/X11/xinit/xinitrc`, `xinit.1`, `startx.1`. 2 NextBSD patches (see [tools](#the-tools)) | nextbsd/nextbsd-xlibre#5 |
 | `xset` | 1.2.6 | meson | `/usr/X11/bin/xset`, `xset.1` | nextbsd/nextbsd-xlibre#5 |
@@ -234,10 +234,11 @@ set in the image by `nextbsd-overlays` (`/etc/sysctl.conf`), not here.
 
 ### The X server
 
-XLibre's `xlibre-xserver-25.1.9`, from its GitHub tag archive (XLibre
-publishes no tarballs). It is the release upstream marks "Latest"; every 25.2.x
-is a pre-release (testing), so the pin is E23 D5's fallback, the version
-FreeBSD's port builds (maintainer decision, 2026-10-25).
+XLibre's `xlibre-xserver-25.1.11`, from its GitHub tag archive (XLibre
+publishes no tarballs). It is the release upstream marks "Latest", the newest
+of the 25.1 series that E23 D5 chose when every 25.2.x was a pre-release
+(maintainer decision, 2026-10-25). 25.2.3 is now a release too, but 25.2 is a
+new module ABI; moving to it is separate work.
 
 | What | Choice |
 |---|---|
@@ -261,16 +262,17 @@ FreeBSD's port builds (maintainer decision, 2026-10-25).
 |---|---|
 | `0001` config/udev | a kbdmux keyboard gets the `device` option only if it can be opened; keyboards and pointers get `kbd`/`mouse` when the kernel has no evdev |
 | `0002` bsd_init | the console keyboard goes to `K_RAW` (and its termios is saved and restored) while X owns the VT, so keys don't reach the console tty |
-| `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.1.9 builds it only for Linux |
-| `0004` meson | takes epoll-shim's include path from its dependency (25.1.9 adds the build host's `<epoll-shim prefix>/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
+| `0003` os-support | builds `SlowBcopy.c` on the BSDs: `xf86SlowBcopy()` is exported in the SDK but 25.1.x builds it only for Linux |
+| `0004` meson | takes epoll-shim's include path from its dependency (25.1.x adds the build host's `<epoll-shim prefix>/include/libepoll-shim`, which breaks cross builds); `os/ospoll.c` uses `poll()` as on FreeBSD |
 
-and three of NextBSD's own:
+and four of NextBSD's own:
 
 | Patch | What |
 |---|---|
 | `0005` os | `-launchd <name>`: listen only on the sockets of the launchd job's `Sockets` entry `<name>`, for [on-demand start](#on-demand-start). The socket's directory must belong to the server's real uid (the user who started it; `Xorg` is set-uid root) |
 | `0006` meson | `-Ddri_driver_path`: GLX's DRI driver directory set explicitly (`/usr/X11/lib/dri`) instead of `dri.pc`'s `dridriverdir`, which pkgconf prefixes with the build sysroot (nextbsd/nextbsd-xlibre#20) |
 | `0007` xfree86 | `xf86CheckSlot()`: an scfb device, like an autoconfigured fbdev, must be the only device. With no xorg.conf, autoconfiguration falls back to scfb after modesetting, and scfb claimed the console framebuffer as a second screen (`:0.1`) on the display modesetting already drives (nextbsd/nextbsd-xlibre#22). Without KMS, scfb is still used |
+| `0008` xfree86 | `configServerFlags()`: the default XKB rules are `evdev` when keyboards are hotplugged and the kernel has evdev(4), as upstream does on Linux; upstream picks `base` on every other system, which mismapped the arrows, Home/End and Page Up/Down for libinput's evdev keycodes (nextbsd/nextbsd-xlibre#35). Without evdev(4) the kbd driver keeps `base` |
 
 Not carried: the seatd patch (it changes only `seatd-libseat.c`, not built with
 seatd off), the two suid-wrapper patches
